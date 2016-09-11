@@ -34,17 +34,17 @@ options.
 
 Training a model on the Europarl corpus can be done like this:
 
-```python3 hnmt.py --source europarl-v7.sv-en.en \
-                --target europarl-v7.sv-en.sv \
-                --source-tokenizer word \
-                --target-tokenizer char \
-                --source-vocabulary 50000 \
-                --max-source-length 30 \
-                --max-target-length 180 \
-                --batch-size 32 \
-                --training-time 24 \
-                --log en-sv.log \
-                --save-model en-sv.model```
+    python3 hnmt.py --source europarl-v7.sv-en.en \
+                    --target europarl-v7.sv-en.sv \
+                    --source-tokenizer word \
+                    --target-tokenizer char \
+                    --source-vocabulary 50000 \
+                    --max-source-length 30 \
+                    --max-target-length 180 \
+                    --batch-size 32 \
+                    --training-time 24 \
+                    --log en-sv.log \
+                    --save-model en-sv.model
 
 This will create a model with a hybrid encoder (with 50k vocabulary size and
 character-level encoding for the rest) and character-based
@@ -56,9 +56,9 @@ written to stdout, so redirecting this or using `tee` is recommended.
 
 The resulting model can be used like this:
 
-```python3 hnmt.py --load-model en-sv.model \
-                --translate test.en --output test.sv \
-                --beam-size 10```
+    python3 hnmt.py --load-model en-sv.model \
+                    --translate test.en --output test.sv \
+                    --beam-size 10
 
 Note that when training a model from scratch, parameters can be set on the
 commandline or otherwise the hard-coded defaults are ued. When continuing
@@ -71,10 +71,10 @@ For instance, the model above will assume that input files need to be
 tokenized, but passing a pre-tokenized (space-separated) input can be done as
 follows:
 
-```python3 hnmt.py --load-model en-sv.model \
-                --translate test.en --output test.sv \
-                --source-tokenizer space \
-                --beam-size 10```
+    python3 hnmt.py --load-model en-sv.model \
+                    --translate test.en --output test.sv \
+                    --source-tokenizer space \
+                    --beam-size 10
 
 ## Resuming training
 
@@ -82,9 +82,9 @@ You can resume training by adding the `--load-model` argument without using
 `--translate` (which disables training). For instance, if you want to keep
 training the model above for another 48 hours on the same data:
 
-```python3 hnmt.py --load-model en-sv.model
-                --training-time 48 \
-                --save-model en-sv-72h.model```
+    python3 hnmt.py --load-model en-sv.model
+                    --training-time 48 \
+                    --save-model en-sv-72h.model
 
 ## Using efmaral for attention supervision
 
