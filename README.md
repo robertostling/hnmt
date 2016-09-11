@@ -92,6 +92,7 @@ Install [efmaral](https://github.com/robertostling/efmaral) and add it to your
 `PYTHONPATH` or uncomment the `sys.path.append(...)` line in `hnmt.py`.
 This is because `efmaral` does not yet have a proper installer (sorry).
 
-Then you can simply add `--alignment-loss` when training to activate this
-feature.
+Then you can simply add `--alignment-loss 0.1` when training to activate this
+feature (the number specifies the contribution of alignment/attention
+cross-entropy to the loss function).
 

@@ -80,7 +80,7 @@ class NMT(Model):
         self.lambda_o = theano.shared(
                 np.array(1.0, dtype=theano.config.floatX))
         self.lambda_a = theano.shared(
-                np.array(0.1, dtype=theano.config.floatX))
+                np.array(config['alignment_loss'], dtype=theano.config.floatX))
         for prefix, backwards in (('fwd', False), ('back', True)):
             self.add(LSTMSequence(
                 prefix+'_char_encoder', backwards,
@@ -351,8 +351,9 @@ def main():
     parser.add_argument('--attention-dims', type=int, default=1024,
             metavar='N',
             help='size of attention vectors')
-    parser.add_argument('--alignment-loss', action='store_true',
-            help='use alignment loss')
+    parser.add_argument('--alignment-loss', type=float, default=0.0,
+            metavar='X',
+            help='alignment cross-entropy contribution to loss function')
     parser.add_argument('--training-time', type=float, default=24.0,
             metavar='HOURS',
             help='training time')
