@@ -694,7 +694,7 @@ def main():
                         print('   SOURCE / TARGET / OUTPUT')
                         print(detokenize(src, config['source_tokenizer']))
                         print(detokenize(trg, config['target_tokenizer']))
-                        print(detokenize(trg_dec, config['target_tokenizer']))
+                        print(trg_dec)
                         print('-'*72)
                     print('Translation finished: %.2f s' % (time()-t0),
                           flush=True)
