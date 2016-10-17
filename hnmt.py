@@ -328,6 +328,9 @@ def main():
     parser.add_argument('--source-vocabulary', type=int, default=10000,
             metavar='N',
             help='maximum size of source vocabulary')
+    parser.add_argument('--target-vocabulary', type=int, default=None,
+            metavar='N',
+            help='maximum size of target vocabulary')
     parser.add_argument('--min-char-count', type=int,
             metavar='N',
             help='drop all characters with count < N in training data')
@@ -501,6 +504,7 @@ def main():
                     sub_encoder=src_char_encoder)
             trg_encoder = TextEncoder(
                     sequences=trg_sents,
+                    max_vocab=args.target_vocabulary,
                     min_count=(args.min_char_count
                                if config['target_tokenizer'] == 'char'
                                else None),
