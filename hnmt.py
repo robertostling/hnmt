@@ -515,7 +515,10 @@ def main():
                 'src_encoder': src_encoder,
                 'trg_encoder': trg_encoder,
                 'src_embedding_dims': args.word_embedding_dims,
-                'trg_embedding_dims': args.char_embedding_dims,
+                'trg_embedding_dims': (
+                    args.char_embedding_dims
+                    if config['target_tokenizer'] == 'char'
+                    else args.word_embedding_dims),
                 'src_char_embedding_dims': args.char_embedding_dims,
                 'char_embeddings_dropout': args.dropout,
                 'embeddings_dropout': args.dropout,
