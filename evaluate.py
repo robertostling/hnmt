@@ -24,6 +24,7 @@ import re
 
 
 def main():
+    use_gpu = False
     ident = sys.argv[1]
     model = sys.argv[2]
     xml_src = sys.argv[3]
@@ -62,38 +63,46 @@ def main():
         run_perl('wrap-xml.perl', [trg, xml_src, 'HNMT'],
                  infile=infile, outfile=outfile)
 
-    if not os.path.isdir(scratch_dir): os.path.mkdir(scratch_dir)
+    if not os.path.isdir(scratch_dir): os.mkdir(scratch_dir)
 
     ext = '.%s.sgm' % src
     assert xml_src.endswith(ext), (xml_src, ext)
-    base = os.path.join(scratch_dir, os.path.basename(xml_src)[:-len(ext)])
+    base = os.path.join(scratch_dir,
+            ident + '-' + os.path.basename(xml_src)[:-len(ext)])
     raw_src = '%s.%s' % (base, src)
     raw_trg = '%s.%s' % (base, trg)
     xml_trg = '%s.%s.sgm' % (base, trg)
     strip_xml(xml_src, raw_src)
 
+    command = [
+            'hnmt.py', '--load-model', model, '--translate', raw_src,
+            '--output', raw_trg, '--beam-size', '10', '--source-tokenizer',
+            source_tokenizer]
+
     # Translate the source file
     # NOTE: replace this with whatever your system requires for launching
     #       GPU jobs
     # -------------------------------------------------------------------
-    slurm = os.path.join(base+'.sh')
-    with open(slurm, 'w', encoding='utf-8') as f:
-        f.write(r'''#!/bin/bash -l
+    if use_gpu:
+        slurm = os.path.join(base+'.sh')
+        with open(slurm, 'w', encoding='utf-8') as f:
+            f.write(r'''#!/bin/bash -l
 
 module purge
 module load python-env/3.4.1
-module load cuda/7.5
+module load cuda/8.0
 
-THEANO_FLAGS=optimizer=fast_run,device=gpu,floatX=float32 python3 \
-        hnmt.py --load-model %s --translate %s --output %s \
-        --beam-size 8 --source-tokenizer %s
-''' % (model, raw_src, raw_trg, source_tokenizer))
+THEANO_FLAGS=optimizer=fast_run,device=gpu,floatX=float32 python3
+        %s
+        ''' % ' '.join(command))
 
-    os.chmod(slurm, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
-    call(['srun', '-N', '1', '--gres=gpu:1', '--mem=8192', '-p', 'gpu',
-          '-t', '02:00:00', slurm])
-    os.remove(slurm)
+        os.chmod(slurm, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
+        call(['srun', '-N', '1', '--gres=gpu:1', '--mem=8192', '-p', 'gpu',
+              '-t', '01:00:00', slurm])
+        os.remove(slurm)
     # -------------------------------------------------------------------
+    else:
+        call(['python3'] + command)
 
     if detokenize:
         run_perl('detokenizer.perl', infile=raw_trg, outfile=raw_trg+'.detok')
@@ -101,7 +110,7 @@ THEANO_FLAGS=optimizer=fast_run,device=gpu,floatX=float32 python3 \
     wrap_xml(raw_trg, xml_trg, xml_src)
     run_perl('mteval-v13a.pl',
              ['-s', xml_src, '-r', xml_trg_ref, '-t', xml_trg],
-             outfile='%s.%s.report'%(base, ident))
+             outfile='%s.report'%base)
 
 if __name__ == '__main__': main()
 
