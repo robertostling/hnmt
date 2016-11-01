@@ -20,8 +20,8 @@ from bnas.loss import batch_sequence_crossentropy
 from bnas.text import TextEncoder
 from bnas.fun import function
 
-#sys.path.append('../efmaral')
-#from cyalign import align_soft
+sys.path.append('../efmaral')
+from cyalign import align_soft
 
 class NMT(Model):
     def __init__(self, name, config):
@@ -380,6 +380,7 @@ def main():
             'beam_size': 8 }
 
     if args.translate:
+        print('HNMT: loading translation model...', file=sys.stder, flush=True)
         with open(args.load_model, 'rb') as f:
             config = pickle.load(f)
             model = NMT('nmt', config)
@@ -387,6 +388,7 @@ def main():
         for option in overridable_options:
             if option in args_vars: config[option] = args_vars[option]
     else:
+        print('HNMT: starting training...', file=sys.stderr, flush=True)
         if args.load_model:
             with open(args.load_model, 'rb') as f:
                 config = pickle.load(f)
