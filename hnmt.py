@@ -380,7 +380,7 @@ def main():
             'beam_size': 8 }
 
     if args.translate:
-        print('HNMT: loading translation model...', file=sys.stder, flush=True)
+        print('HNMT: loading translation model...', file=sys.stderr, flush=True)
         with open(args.load_model, 'rb') as f:
             config = pickle.load(f)
             model = NMT('nmt', config)
