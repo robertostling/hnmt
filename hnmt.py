@@ -20,8 +20,11 @@ from bnas.loss import batch_sequence_crossentropy
 from bnas.text import TextEncoder
 from bnas.fun import function
 
-sys.path.append('../efmaral')
-from cyalign import align_soft
+try:
+    from efmaral import align_soft
+except ImportError:
+    print('efmaral is not available, will not be able to use attention loss',
+          file=sys.stderr, flush=True)
 
 class NMT(Model):
     def __init__(self, name, config):
@@ -357,6 +360,12 @@ def main():
     parser.add_argument('--alignment-loss', type=float, default=0.0,
             metavar='X',
             help='alignment cross-entropy contribution to loss function')
+    parser.add_argument('--alignment-decay', type=float, default=0.9999,
+            metavar='X',
+            help='decay factor of alignment cross-entropy contribution')
+    parser.add_argument('--learning-rate', type=float, default=None,
+            metavar='X',
+            help='override the default learning rate for optimizer with X')
     parser.add_argument('--training-time', type=float, default=24.0,
             metavar='HOURS',
             help='training time')
@@ -395,6 +404,8 @@ def main():
                 model = NMT('nmt', config)
                 model.load(f)
                 optimizer = model.create_optimizer()
+                if args.learning_rate:
+                    optimizer.learning_rate = args.learning_rate
                 optimizer.load(f)
             print('Continuing training from update %d...'%optimizer.n_updates,
                   flush=True)
@@ -531,6 +542,7 @@ def main():
                 'attention_dims': args.attention_dims,
                 'layernorm': args.layer_normalization,
                 'alignment_loss': args.alignment_loss,
+                'alignment_decay': args.alignment_decay,
                 # NOTE: there are serious stability issues when ba1 is used for
                 #       the encoder, and still problems with large models when
                 #       the encoder uses ba2 and the decoder ba1.
@@ -543,6 +555,8 @@ def main():
 
             model = NMT('nmt', config)
             optimizer = model.create_optimizer()
+            if args.learning_rate:
+                optimizer.learning_rate = args.learning_rate
 
     # By this point a model has been created or loaded, so we can define a
     # convenience function to perform translation.
@@ -711,7 +725,7 @@ def main():
                 # TODO: add options etc
                 print('lambda_a = %g' % model.lambda_a.get_value())
                 model.lambda_a.set_value(np.array(
-                    model.lambda_a.get_value() * 0.9995,
+                    model.lambda_a.get_value() * config['alignment_decay'],
                     dtype=theano.config.floatX))
                 if time() >= end_time: break
 
