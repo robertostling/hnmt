@@ -72,7 +72,10 @@ def main():
     raw_src = '%s.%s' % (base, src)
     raw_trg = '%s.%s' % (base, trg)
     xml_trg = '%s.%s.sgm' % (base, trg)
-    strip_xml(xml_src, raw_src)
+    if not os.path.exists(raw_src):
+        strip_xml(xml_src, raw_src)
+    else:
+        print('Raw source text already available', file=sys.stderr)
 
     command = [
             'hnmt.py', '--load-model', model, '--translate', raw_src,
@@ -83,7 +86,7 @@ def main():
     # NOTE: replace this with whatever your system requires for launching
     #       GPU jobs
     # -------------------------------------------------------------------
-    if use_gpu:
+    if use_gpu and not os.path.exists(raw_trg):
         slurm = os.path.join(base+'.sh')
         with open(slurm, 'w', encoding='utf-8') as f:
             f.write(r'''#!/bin/bash -l
@@ -92,25 +95,36 @@ module purge
 module load python-env/3.4.1
 module load cuda/8.0
 
-THEANO_FLAGS=optimizer=fast_run,device=gpu,floatX=float32 python3
-        %s
-        ''' % ' '.join(command))
+THEANO_FLAGS=optimizer=fast_run,device=gpu,floatX=float32 python3 %s
+''' % ' '.join(command))
 
         os.chmod(slurm, stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
         call(['srun', '-N', '1', '--gres=gpu:1', '--mem=8192', '-p', 'gpu',
               '-t', '01:00:00', slurm])
         os.remove(slurm)
     # -------------------------------------------------------------------
-    else:
+    elif not use_gpu and not os.path.exists(raw_trg):
         call(['python3'] + command)
+    else:
+        print('Translated text already available', file=sys.stderr)
 
     if detokenize:
-        run_perl('detokenizer.perl', infile=raw_trg, outfile=raw_trg+'.detok')
+        if not os.path.exists(raw_trg+'.detok'):
+            run_perl('detokenizer.perl',
+                     infile=raw_trg, outfile=raw_trg+'.detok')
+        else:
+            print('Detokenized text already available', file=sys.stderr)
         raw_trg = raw_trg+'.detok'
-    wrap_xml(raw_trg, xml_trg, xml_src)
-    run_perl('mteval-v13a.pl',
-             ['-s', xml_src, '-r', xml_trg_ref, '-t', xml_trg],
-             outfile='%s.report'%base)
+    if not os.path.exists(xml_trg):
+        wrap_xml(raw_trg, xml_trg, xml_src)
+    else:
+        print('XML-wrapped text already available', file=sys.stderr)
+    if not os.path.exists('%s.report'%base):
+        run_perl('mteval-v13a.pl',
+                 ['-s', xml_src, '-r', xml_trg_ref, '-t', xml_trg],
+                 outfile='%s.report'%base)
+    else:
+        print('Report already available', file=sys.stderr)
 
 if __name__ == '__main__': main()
 

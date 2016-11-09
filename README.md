@@ -88,11 +88,13 @@ training the model above for another 48 hours on the same data:
 
 ## Using efmaral for attention supervision
 
-Install [efmaral](https://github.com/robertostling/efmaral) and add it to your
-`PYTHONPATH` or uncomment the `sys.path.append(...)` line in `hnmt.py`.
-This is because `efmaral` does not yet have a proper installer (sorry).
+Install the Python bindings for
+[efmaral](https://github.com/robertostling/efmaral) (i.e. run
+`python3 setup.py install` in the `efmaral` directory).
 
-Then you can simply add `--alignment-loss 0.1` when training to activate this
+Then you can simply add `--alignment-loss 1.0` when training to activate this
 feature (the number specifies the contribution of alignment/attention
-cross-entropy to the loss function).
+cross-entropy to the loss function). By default this contribution has an
+exponential decay (per batch), this can be specified with
+`--alignment-decay 0.9999` or such.
 
