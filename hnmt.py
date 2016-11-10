@@ -19,6 +19,7 @@ from bnas.utils import softmax_3d
 from bnas.loss import batch_sequence_crossentropy
 from bnas.text import TextEncoder
 from bnas.fun import function
+from bnas.search import beam
 
 try:
     from efmaral import align_soft
@@ -160,7 +161,83 @@ class NMT(Model):
         return super().loss() + self.lambda_o*outputs_xent \
                 + self.lambda_a*attention_xent
 
-    def search(self, inputs, inputs_mask, chars, chars_mask, max_length,
+    def unify_embeddings(self, model):
+        """Ensure that the embeddings use the same vocabulary as model"""
+        other_src_char_encoder = model.config['src_encoder'].sub_encoder
+        other_src_encoder = model.config['src_encoder']
+        other_trg_encoder = model.config['trg_encoder']
+        src_char_encoder = self.config['src_encoder'].sub_encoder
+        src_encoder = self.config['src_encoder']
+        trg_encoder = self.config['trg_encoder']
+
+        def make_translation(this, that):
+            return np.array([this.index[x] for x in this.vocab])
+
+        if src_char_encoder.vocab != other_src_char_encoder.vocab:
+            trans_src_char = make_translation(
+                    src_char_encoder, other_src_char_encoder)
+            self.src_char_embeddings._w.set_value(
+                    self.src_char_embeddings._w.get_value()[trans_src_char])
+
+        if src_encoder.vocab != other_src_encoder.vocab:
+            trans_src = make_translation(src_encoder, other_src_encoder)
+            self.src_embeddings._w.set_value(
+                    self.src_embeddings._w.get_value()[trans_src])
+
+        if trg_encoder.vocab != other_trg_encoder.vocab:
+            trans_trg = make_translation(trg_encoder, other_trg_encoder)
+            self.trg_embeddings._w.set_value(
+                    self.trg_embeddings._w.get_value()[trans_trg])
+
+
+    def search(self, inputs, inputs_mask, chars, chars_mask,
+               max_length, beam_size=8, others=[]):
+        # list of models in the ensemble
+        models = [self] + others
+        n_models = len(models)
+        n_states = 2
+
+        # tuple (h_0, c_0, attended) for each model in the ensemble
+        models_init = [m.encode_fun(inputs, inputs_mask, chars, chars_mask)
+                       for m in models]
+
+        # precomputed sequences for attention, one for each model
+        models_attended_dot_u = [
+                m.decoder.attention_u_fun()(attended)
+                for m, (_,_,attended) in zip(models, models_init)]
+
+        # output embeddings for each model
+        models_embeddings = [
+                m.trg_embeddings._w.get_value(borrow=False)
+                for m in models]
+
+
+        def step(i, states, outputs, outputs_mask):
+            models_result = [
+                    models[idx].decoder.step_fun()(
+                        models_embeddings[idx][outputs[-1]],
+                        states[idx*n_states+0],
+                        states[idx*n_states+1],
+                        models_init[idx][2],
+                        models_attended_dot_u[idx],
+                        inputs_mask)
+                    for idx in range(n_models)]
+            models_predict = np.array(
+                    [models[idx].predict_fun(models_result[idx][0])
+                     for idx in range(n_models)])
+            dist = models_predict.mean(axis=0)
+            return [x for result in models_result for x in result[:2]], dist
+
+        return beam(
+                step,
+                [x for h_0, c_0, _ in models_init for x in [h_0, c_0]],
+                models_init[0][0].shape[0],
+                self.config['trg_encoder']['<S>'],
+                self.config['trg_encoder']['</S>'],
+                max_length,
+                beam_size=beam_size)
+
+    def search_single(self, inputs, inputs_mask, chars, chars_mask, max_length,
                beam_size=8):
         h_0, c_0, attended = self.encode_fun(
                 inputs, inputs_mask, chars, chars_mask)
@@ -270,8 +347,8 @@ def main():
             description='HNMT -- Helsinki Neural Machine Translation system')
 
     parser.add_argument('--load-model', type=str,
-            metavar='FILE',
-            help='name of the model file to load from')
+            metavar='FILE(s)',
+            help='name of the model file(s) to load from, comma-separated list')
     parser.add_argument('--save-model', type=str,
             metavar='FILE',
             help='name of the model file to save to')
@@ -389,11 +466,23 @@ def main():
             'beam_size': 8 }
 
     if args.translate:
-        print('HNMT: loading translation model...', file=sys.stderr, flush=True)
-        with open(args.load_model, 'rb') as f:
-            config = pickle.load(f)
-            model = NMT('nmt', config)
-            model.load(f)
+        models = []
+        configs = []
+        for filename in args.load_model.split(','):
+            print('HNMT: loading translation model from %s...' % filename,
+                  file=sys.stderr, flush=True)
+            with open(filename, 'rb') as f:
+                configs.append(pickle.load(f))
+                models.append(NMT('nmt', configs[-1]))
+                models[-1].load(f)
+        model = models[0]
+        config = configs[0]
+        for c in configs[1:]:
+            assert c['trg_encoder'].vocab == config['trg_encoder'].vocab
+        # This could work only in rare circumstances:
+        #for m in models[1:]:
+        #    m.unify_embeddings(model)
+
         for option in overridable_options:
             if option in args_vars: config[option] = args_vars[option]
     else:
@@ -403,6 +492,7 @@ def main():
                 config = pickle.load(f)
                 model = NMT('nmt', config)
                 model.load(f)
+                models = [model]
                 optimizer = model.create_optimizer()
                 if args.learning_rate:
                     optimizer.learning_rate = args.learning_rate
@@ -554,6 +644,7 @@ def main():
                 })
 
             model = NMT('nmt', config)
+            models = [model]
             optimizer = model.create_optimizer()
             if args.learning_rate:
                 optimizer.learning_rate = args.learning_rate
@@ -566,7 +657,7 @@ def main():
                     sents[i:i+config['batch_size']])
             pred, pred_mask, scores = model.search(
                     *(x + (config['max_target_length'],)),
-                    beam_size=config['beam_size'])
+                    beam_size=config['beam_size'], others=models[1:])
             decoded = config['trg_encoder'].decode_padded(
                     pred[-1], pred_mask[-1])
             for sent in decoded:
