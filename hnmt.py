@@ -322,6 +322,13 @@ class NMT(Model):
                 self.x, self.y,
                 grad_max_norm=5.0)
 
+    def average_parameters(self, others):
+        for name, p in self.parameters():
+            p.set_value(np.mean(
+                    [p.get_value(borrow=True)] + \
+                    [other.parameter(name).get_value(borrow=True)
+                     for other in others],
+                    axis=0))
 
 def read_sents(filename, tokenizer, lower):
     def process(line):
@@ -352,6 +359,8 @@ def main():
     parser.add_argument('--save-model', type=str,
             metavar='FILE',
             help='name of the model file to save to')
+    parser.add_argument('--ensemble-average', action='store_true',
+            help='ensemble models by averaging parameters')
     parser.add_argument('--translate', type=str,
             metavar='FILE',
             help='name of file to translate')
@@ -479,6 +488,14 @@ def main():
         config = configs[0]
         for c in configs[1:]:
             assert c['trg_encoder'].vocab == config['trg_encoder'].vocab
+        if args.ensemble_average:
+            if len(models) == 1:
+                print('HNMT: --ensemble-average used with a single model!',
+                      file=sys.stderr, flush=True)
+            else:
+                model.average_parameters(models[1:])
+                models = models[:1]
+                configs = configs[1:]
         # This could work only in rare circumstances:
         #for m in models[1:]:
         #    m.unify_embeddings(model)

@@ -17,6 +17,7 @@ BLEU/NIST scores are written.
 """
 
 import sys
+import glob
 from subprocess import Popen, PIPE, call
 import stat
 import os
@@ -26,9 +27,10 @@ import re
 def main():
     use_gpu = False
     ident = sys.argv[1]
-    model = sys.argv[2]
+    model = ','.join(glob.glob(sys.argv[2]))
     xml_src = sys.argv[3]
     xml_trg_ref = sys.argv[4]
+    extra_args = sys.argv[5:]
     assert xml_src.endswith('.sgm') and xml_src[-11:-6] == '-src.'
     src = xml_src[-6:-4]
     assert xml_trg_ref.endswith('.sgm') and xml_trg_ref[-11:-6] == '-ref.'
@@ -80,7 +82,7 @@ def main():
     command = [
             'hnmt.py', '--load-model', model, '--translate', raw_src,
             '--output', raw_trg, '--beam-size', '10', '--source-tokenizer',
-            source_tokenizer]
+            source_tokenizer] + extra_args
 
     # Translate the source file
     # NOTE: replace this with whatever your system requires for launching
