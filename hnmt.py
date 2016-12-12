@@ -3,6 +3,7 @@
 See README.md for further documentation.
 """
 
+import gzip
 import sys
 import random
 from pprint import pprint
@@ -336,7 +337,13 @@ def read_sents(filename, tokenizer, lower):
         if tokenizer == 'char': return line.strip()
         elif tokenizer == 'space': return line.split()
         return word_tokenize(line)
-    with open(filename, 'r', encoding='utf-8') as f:
+    if filename.endswith('.gz'):
+        def open_func(fname):
+            return gzip.open(fname, 'rt', encoding='utf-8')
+    else:
+        def open_func(fname):
+            return open(fname, 'r', encoding='utf-8')
+    with open_func(filename) as f:
         return list(map(process, f))
 
 def detokenize(sent, tokenizer):
