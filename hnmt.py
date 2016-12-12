@@ -522,6 +522,9 @@ def main():
         if args.load_model:
             with open(args.load_model, 'rb') as f:
                 config = pickle.load(f)
+                # allow loading old models without decay parameter
+                if 'alignment_decay' not in config:
+                    config['alignment_decay'] = 0.9995
                 model = NMT('nmt', config)
                 model.load(f)
                 models = [model]
