@@ -393,6 +393,14 @@ def main():
     parser.add_argument('--target', type=str, default=argparse.SUPPRESS,
             metavar='FILE',
             help='name of target language file')
+    parser.add_argument('--test-source', type=str, default=argparse.SUPPRESS,
+            metavar='FILE',
+            help='name of source language test file. '
+                 '(a better name would be dev or validation)')
+    parser.add_argument('--test-target', type=str, default=argparse.SUPPRESS,
+            metavar='FILE',
+            help='name of target language test file. '
+                 '(a better name would be dev or validation)')
     parser.add_argument('--source-tokenizer', type=str,
             choices=('word', 'space', 'char'), default=argparse.SUPPRESS,
             help='type of preprocessing for source text')
@@ -487,6 +495,8 @@ def main():
             'max_target_length': None,
             'source': None,
             'target': None,
+            'test_source': None,
+            'test_target': None,
             'beam_size': 8 }
 
     if args.translate:
@@ -543,6 +553,20 @@ def main():
             for option, default in overridable_options.items():
                 config[option] = args_vars.get(option, default)
 
+        # using the name "test" set, instead of more appropriate
+        # development or validation set, for hysterical raisins
+        if config['test_source'] is not None:
+            test_src_sents = read_sents(
+                    config['test_source'], config['source_tokenizer'],
+                    config['source_lowercase'] == 'yes')
+            test_trg_sents = read_sents(
+                    config['test_target'], config['target_tokenizer'],
+                    config['target_lowercase'] == 'yes')
+            assert len(test_src_sents) == len(test_trg_sents)
+        else:
+            test_src_sents = []
+            test_trg_sents = []
+
         src_sents = read_sents(
                 config['source'], config['source_tokenizer'],
                 config['source_lowercase'] == 'yes')
@@ -561,13 +585,25 @@ def main():
             if max_target_length and trg_len > max_target_length: return False
             return True
 
+        test_keep_sents = [i for i,pair
+                           in enumerate(zip(test_src_sents, test_trg_sents))
+                           if accept_pair(pair)]
+        test_src_sents = [test_src_sents[i] for i in test_keep_sents]
+        test_trg_sents = [test_trg_sents[i] for i in test_keep_sents]
+        n_test_sents = len(test_src_sents)
+        if n_test_sents == 0:
+            # if no test set is given, take one minibatch from train
+            n_test_sents = config['batch_size']
+
         keep_sents = [i for i,pair in enumerate(zip(src_sents, trg_sents))
                       if accept_pair(pair)]
-        n_sents = len(keep_sents)
         random.seed(123)
         random.shuffle(keep_sents)
-        src_sents = [src_sents[i] for i in keep_sents]
-        trg_sents = [trg_sents[i] for i in keep_sents]
+        # test set is prepended to shuffled test set,
+        # because the following code is built around the assumption
+        # of a single data set
+        src_sents = test_src_sents + [src_sents[i] for i in keep_sents]
+        trg_sents = test_trg_sents + [trg_sents[i] for i in keep_sents]
 
         if not max_source_length:
             config['max_source_length'] = max(map(len, src_sents))
@@ -746,26 +782,30 @@ def main():
         if args.output:
             outf.close()
     else:
-        test_src = src_sents[:config['batch_size']]
-        test_trg = trg_sents[:config['batch_size']]
-        test_x = config['src_encoder'].pad_sequences(test_src)
-        test_y = config['trg_encoder'].pad_sequences(test_trg)
-        test_inputs, test_inputs_mask, test_chars, test_chars_mask = test_x
-        test_outputs, test_outputs_mask = test_y
-        if args.alignment_loss:
-            test_links, test_src_maps, test_trg_maps = list(
-                    zip(*links_maps[:config['batch_size']]))
-            test_attention = pad_links(
-                test_links, test_x, test_y, test_src_maps, test_trg_maps)
-        else:
-            test_attention = np.ones(
-                    test_outputs.shape + (test_inputs.shape[0],),
-                    dtype=theano.config.floatX)
-        test_y = test_y + (test_attention,)
+        def prepare_batch(batch_pairs):
+            src_batch, trg_batch, links_maps_batch = \
+                    list(zip(*batch_pairs))
+            x = config['src_encoder'].pad_sequences(src_batch)
+            y = config['trg_encoder'].pad_sequences(trg_batch)
+            if args.alignment_loss:
+                links_batch, src_maps_batch, trg_maps_batch = \
+                        list(zip(*links_maps_batch))
+                y = y + (pad_links(
+                    links_batch, x, y, src_maps_batch, trg_maps_batch),)
+            else:
+                y = y + (np.ones(y[0].shape + (x[0].shape[0],),
+                                    dtype=theano.config.floatX),)
+            return x, y
 
-        train_src = src_sents[config['batch_size']:]
-        train_trg = trg_sents[config['batch_size']:]
-        train_links_maps = links_maps[config['batch_size']:]
+        # reseparating "test" set from train set
+        test_src = src_sents[:n_test_sents]
+        test_trg = trg_sents[:n_test_sents]
+        test_links_maps = links_maps[:n_test_sents]
+        test_pairs = list(zip(test_src, test_trg, test_links_maps))
+
+        train_src = src_sents[n_test_sents:]
+        train_trg = trg_sents[n_test_sents:]
+        train_links_maps = links_maps[n_test_sents:]
 
         train_pairs = list(zip(train_src, train_trg, train_links_maps))
 
@@ -773,43 +813,51 @@ def main():
         if args.log_file:
             logf = open(args.log_file, 'a', encoding='utf-8')
 
+        # Sort by target sequence length when grouping training instances
+        # into batches.
+        def pair_length(pair):
+            return len(pair[1])
+
         epoch = 0
         batch_nr = 0
 
         start_time = time()
         end_time = start_time + 3600*args.training_time
 
+        def validate(test_pairs, start_time, optimizer, logf):
+            result = 0.
+            att_result = 0.
+            t0 = time()
+            for batch_pairs in iterate_batches(
+                    test_pairs, config['batch_size']):
+                test_x, test_y = prepare_batch(batch_pairs)
+                test_outputs, test_outputs_mask, test_attention = test_y
+                test_xent, test_xent_attention = model.xent_fun(
+                        *(test_x + test_y))
+                scale = (test_outputs.shape[1] /
+                            (test_outputs_mask.sum()*np.log(2)))
+                result += test_xent * scale
+                att_result += test_xent_attention*scale
+            print('%d\t%.3f\t%.3f\t%.3f\t%d' % (
+                    int(t0 - start_time),
+                    result,
+                    att_result,
+                    time() - t0,
+                    optimizer.n_updates),
+                file=logf, flush=True)
+            return result
+
+        # only translate one minibatch for monitoring
+        translate_src = test_src[:config['batch_size']]
+        translate_trg = test_trg[:config['batch_size']]
+
         while time() < end_time:
-            # Sort by target sequence length when grouping training instances
-            # into batches.
-            def pair_length(pair): return len(pair[1])
             for batch_pairs in iterate_batches(
                     train_pairs, config['batch_size'], pair_length):
-                if batch_nr % config['test_every'] == 0:
-                    t0 = time()
-                    test_xent, test_xent_attention = model.xent_fun(
-                            *(test_x + test_y))
-                    scale = (test_outputs.shape[1] /
-                                (test_outputs_mask.sum()*np.log(2)))
-                    if logf:
-                        print('%d\t%.3f\t%.3f\t%.3f\t%d' % (
-                                int(t0-start_time), test_xent*scale,
-                                test_xent_attention*scale,
-                                time()-t0, optimizer.n_updates),
-                            file=logf, flush=True)
+                if logf and batch_nr % config['test_every'] == 0:
+                    validate(test_pairs, start_time, optimizer, logf)
 
-                src_batch, trg_batch, links_maps_batch = \
-                        list(zip(*batch_pairs))
-                links_batch, src_maps_batch, trg_maps_batch = \
-                        list(zip(*links_maps_batch))
-                x = config['src_encoder'].pad_sequences(src_batch)
-                y = config['trg_encoder'].pad_sequences(trg_batch)
-                if args.alignment_loss:
-                    y = y + (pad_links(
-                        links_batch, x, y, src_maps_batch, trg_maps_batch),)
-                else:
-                    y = y + (np.ones(y[0].shape + (x[0].shape[0],),
-                                     dtype=theano.config.floatX),)
+                x, y = prepare_batch(batch_pairs)
 
                 # This code can be used to print parameter and gradient
                 # statistics after each update, which can be useful to
@@ -843,8 +891,9 @@ def main():
 
                 if batch_nr % config['translate_every'] == 0:
                     t0 = time()
-                    test_dec = translate(test_src)
-                    for src, trg, trg_dec in zip(test_src, test_trg, test_dec):
+                    test_dec = translate(translate_src)
+                    for src, trg, trg_dec in zip(
+                            translate_src, translate_trg, test_dec):
                         print('   SOURCE / TARGET / OUTPUT')
                         print(detokenize(src, config['source_tokenizer']))
                         print(detokenize(trg, config['target_tokenizer']))
