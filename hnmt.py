@@ -432,7 +432,11 @@ def main():
             help='drop all characters with count < N in training data')
     parser.add_argument('--dropout', type=float, default=0.0,
             metavar='FRACTION',
-            help='use dropout with the given factor')
+            help='use dropout for non-recurrent connections '
+                 'with the given factor')
+    parser.add_argument('--recurrent-dropout', type=float, default=0.0,
+            metavar='FRACTION',
+            help='use dropout for recurrent connections with the given factor')
     parser.add_argument('--layer-normalization', action='store_true',
             help='use layer normalization')
     parser.add_argument('--word-embedding-dims', type=int, default=512,
@@ -441,6 +445,10 @@ def main():
     parser.add_argument('--char-embedding-dims', type=int, default=32,
             metavar='N',
             help='size of character embeddings')
+    parser.add_argument('--target-embedding-dims', type=int, default=None,
+            metavar='N',
+            help='size of target embeddings '
+            '(default: size of input word or char embedding')
     parser.add_argument('--encoder-state-dims', type=int, default=1024,
             metavar='N',
             help='size of encoder state')
@@ -638,18 +646,23 @@ def main():
                     special=(('<S>', '</S>')
                              if config['target_tokenizer'] == 'char'
                              else ('<S>', '</S>', '<UNK>')))
+
+            if not args.target_embedding_dims is None:
+                trg_embedding_dims = args.target_embedding_dims
+            else:
+                trg_embedding_dims = (
+                    args.char_embedding_dims
+                    if config['target_tokenizer'] == 'char'
+                    else args.word_embedding_dims)
             config.update({
                 'src_encoder': src_encoder,
                 'trg_encoder': trg_encoder,
                 'src_embedding_dims': args.word_embedding_dims,
-                'trg_embedding_dims': (
-                    args.char_embedding_dims
-                    if config['target_tokenizer'] == 'char'
-                    else args.word_embedding_dims),
+                'trg_embedding_dims': trg_embedding_dims,
                 'src_char_embedding_dims': args.char_embedding_dims,
                 'char_embeddings_dropout': args.dropout,
                 'embeddings_dropout': args.dropout,
-                'recurrent_dropout': args.dropout,
+                'recurrent_dropout': args.recurrent_dropout,
                 'dropout': args.dropout,
                 'encoder_state_dims': args.encoder_state_dims,
                 'decoder_state_dims': args.decoder_state_dims,
