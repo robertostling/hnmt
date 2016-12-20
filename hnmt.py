@@ -572,12 +572,14 @@ def main():
             test_src_sents = []
             test_trg_sents = []
 
+        print('reading sentences...', file=sys.stderr, flush=True)
         src_sents = read_sents(
                 config['source'], config['source_tokenizer'],
                 config['source_lowercase'] == 'yes')
         trg_sents = read_sents(
                 config['target'], config['target_tokenizer'],
                 config['target_lowercase'] == 'yes')
+        print('...done', file=sys.stderr, flush=True)
         assert len(src_sents) == len(trg_sents)
 
         max_source_length = config['max_source_length']
@@ -672,6 +674,7 @@ def main():
         if not args.load_model:
             # Source encoder is a hybrid, with a character-based encoder for
             # rare words and a word-level decoder for the rest.
+            print('Creating encoders...', file=sys.stderr, flush=True)
             src_char_encoder = TextEncoder(
                     sequences=[token for sent in src_sents for token in sent],
                     min_count=args.min_char_count,
@@ -689,6 +692,7 @@ def main():
                     special=(('<S>', '</S>')
                              if config['target_tokenizer'] == 'char'
                              else ('<S>', '</S>', '<UNK>')))
+            print('...done', file=sys.stderr, flush=True)
 
             if not args.target_embedding_dims is None:
                 trg_embedding_dims = args.target_embedding_dims
