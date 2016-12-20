@@ -828,11 +828,12 @@ def main():
 
         epoch = 0
         batch_nr = 0
+        sent_nr = 0
 
         start_time = time()
         end_time = start_time + 3600*args.training_time
 
-        def validate(test_pairs, start_time, optimizer, logf):
+        def validate(test_pairs, start_time, optimizer, logf, sent_nr):
             result = 0.
             att_result = 0.
             t0 = time()
@@ -846,12 +847,13 @@ def main():
                             (test_outputs_mask.sum()*np.log(2)))
                 result += test_xent * scale
                 att_result += test_xent_attention*scale
-            print('%d\t%.3f\t%.3f\t%.3f\t%d' % (
+            print('%d\t%.3f\t%.3f\t%.3f\t%d\t%d' % (
                     int(t0 - start_time),
                     result,
                     att_result,
                     time() - t0,
-                    optimizer.n_updates),
+                    optimizer.n_updates,
+                    sent_nr),
                 file=logf, flush=True)
             return result
 
@@ -863,7 +865,9 @@ def main():
             for batch_pairs in iterate_batches(
                     train_pairs, config['batch_size'], pair_length):
                 if logf and batch_nr % config['test_every'] == 0:
-                    validate(test_pairs, start_time, optimizer, logf)
+                    validate(test_pairs, start_time, optimizer, logf, sent_nr)
+
+                sent_nr += len(batch_pairs)
 
                 x, y = prepare_batch(batch_pairs)
 
