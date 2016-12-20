@@ -13,12 +13,14 @@ import numpy as np
 import theano
 from theano import tensor as T
 
+# FIXME: encoding in advance
+from text import TextEncoder
+
 from bnas.model import Model, Linear, Embeddings, LSTMSequence
 from bnas.optimize import Adam, iterate_batches
 from bnas.init import Gaussian
 from bnas.utils import softmax_3d
 from bnas.loss import batch_sequence_crossentropy
-from bnas.text import TextEncoder
 from bnas.fun import function
 from bnas.search import beam
 
@@ -27,6 +29,89 @@ try:
 except ImportError:
     print('efmaral is not available, will not be able to use attention loss',
           file=sys.stderr, flush=True)
+
+def combo_len(src_weight, tgt_weight, x_weight):
+    def _combo_len(pair):
+        src, tgt = len(pair[0]), len(pair[1])
+        return (  (src * src_weight)
+                + (tgt * tgt_weight)
+                + (src * tgt * x_weight))
+    return _combo_len
+
+def local_sort(data, len_f, sort_size=16*32):
+    order = list(range(len(data)))
+    random.shuffle(order)
+    reverse = False
+    for i in range(0, len(data), sort_size):
+        subset = [data[j] for j in order[i:i + sort_size]]
+        subset.sort(key=len_f, reverse=reverse)
+        for sent in subset:
+            yield sent
+        # alternate between sort directions,
+        # to avoid discontinuity causing a minibatch with very long
+        # and very short sentences
+        reverse = not reverse
+
+def iterate_variable_batches(data, batch_budget, len_f,
+                             const_weight=0, src_weight=0,
+                             tgt_weight=1, x_weight=0,
+                             sort_size=16*32):
+    """Iterate over minibatches.
+
+    Produces variable-size minibatches,
+    increasing the minibatch size if sentences are short.
+    This differs from the version in bnas,
+    from which this function is derived.
+
+    Arguments
+    ---------
+    data : list of data items (encoded example/label pairs)
+        Data set to iterate over
+    batch_budget : float
+        Maximum number of "budget units" to include in a minibatch
+    len_f : function
+        A function mapping items from the
+        data array to some ordered type. sort_size sentences will be randomly
+        sampled at a time, the examples inside sorted and cut up into batches.
+        This is useful for variable-length sequences, so that batches aren't
+        too sparse.
+    src_weight : float
+        How many "budget units" does an increase of one source token cost.
+    tgt_weight : float
+        How many "budget units" does an increase of one target token cost.
+    x_weight : float
+        A cost in "budget units" for the product of source and target lengths.
+        Useful e.g. for attention.
+    sort_size : int
+        How many sentences to sample for sorting.
+    """
+    def within_budget(n, src, tgt):
+        cost = n * (const_weight
+                 + (src * src_weight)
+                 + (tgt * tgt_weight)
+                 + (src * tgt * x_weight))
+        return cost < batch_budget
+
+    minibatch = []
+    max_src_len = 0
+    max_tgt_len = 0
+    for sent in local_sort(data, len_f, sort_size=sort_size):
+        src_len, tgt_len = len(sent[0].sequence), len(sent[1].sequence)
+        if within_budget(len(minibatch) + 1,
+                         max(max_src_len, src_len),
+                         max(max_tgt_len, tgt_len)):
+            minibatch.append(sent)
+            max_src_len = max(max_src_len, src_len)
+            max_tgt_len = max(max_tgt_len, tgt_len)
+        else:
+            yield minibatch
+            # start a new minibatch containing rejected sentence
+            minibatch = [sent]
+            max_src_len = src_len
+            max_tgt_len = tgt_len
+    # final incomplete minibatch
+    yield minibatch
+
 
 class NMT(Model):
     def __init__(self, name, config):
@@ -419,7 +504,12 @@ def main():
                  '(unit given by --target-tokenizer)')
     parser.add_argument('--batch-size', type=int, default=argparse.SUPPRESS,
             metavar='N',
-            help='batch size during training')
+            help='minibatch size of devset (FIXME)')
+    parser.add_argument('--batch-budget', type=float, default=argparse.SUPPRESS,
+            metavar='X',
+            help='minibatch budget during training. '
+                 'The optimal value depends on model size and available memory. '
+                 'Try values between 50 and 200')
     parser.add_argument('--log-file', type=str,
             metavar='FILE',
             help='name of training log file')
@@ -492,6 +582,7 @@ def main():
             'test_every': 25,
             'translate_every': 250,
             'batch_size': 32,
+            'batch_budget': 32,
             'source_lowercase': 'no',
             'target_lowercase': 'no',
             'source_tokenizer': 'space',
@@ -805,6 +896,12 @@ def main():
                                     dtype=theano.config.floatX),)
             return x, y
 
+        # encoding in advance
+        src_sents = [config['src_encoder'].encode_sequence(sent)
+                     for sent in src_sents]
+        trg_sents = [config['trg_encoder'].encode_sequence(sent)
+                     for sent in trg_sents]
+
         # reseparating "test" set from train set
         test_src = src_sents[:n_test_sents]
         test_trg = trg_sents[:n_test_sents]
@@ -821,17 +918,18 @@ def main():
         if args.log_file:
             logf = open(args.log_file, 'a', encoding='utf-8')
 
-        # Sort by target sequence length when grouping training instances
-        # into batches.
-        def pair_length(pair):
-            return len(pair[1])
-
         epoch = 0
         batch_nr = 0
         sent_nr = 0
 
         start_time = time()
         end_time = start_time + 3600*args.training_time
+
+        const_weight = 110
+        src_weight = 1
+        tgt_weight = 1
+        x_weight = .045
+        pair_length = combo_len(0, tgt_weight, x_weight)
 
         def validate(test_pairs, start_time, optimizer, logf, sent_nr):
             result = 0.
@@ -862,8 +960,15 @@ def main():
         translate_trg = test_trg[:config['batch_size']]
 
         while time() < end_time:
-            for batch_pairs in iterate_batches(
-                    train_pairs, config['batch_size'], pair_length):
+            # Sort by combined sequence length when grouping training instances
+            # into batches.
+
+            for batch_pairs in iterate_variable_batches(
+                    train_pairs,
+                    (100 + 600) * config['batch_budget'],
+                    pair_length,
+                    const_weight, src_weight, tgt_weight, x_weight,
+                    sort_size=int(16 * config['batch_budget'])):
                 if logf and batch_nr % config['test_every'] == 0:
                     validate(test_pairs, start_time, optimizer, logf, sent_nr)
 
@@ -907,8 +1012,12 @@ def main():
                     for src, trg, trg_dec in zip(
                             translate_src, translate_trg, test_dec):
                         print('   SOURCE / TARGET / OUTPUT')
-                        print(detokenize(src, config['source_tokenizer']))
-                        print(detokenize(trg, config['target_tokenizer']))
+                        print(detokenize(
+                            config['src_encoder'].decode_sentence(src),
+                            config['source_tokenizer']))
+                        print(detokenize(
+                            config['trg_encoder'].decode_sentence(trg),
+                            config['target_tokenizer']))
                         print(trg_dec)
                         print('-'*72)
                     print('Translation finished: %.2f s' % (time()-t0),
