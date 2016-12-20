@@ -478,9 +478,14 @@ def main():
     parser.add_argument('--training-time', type=float, default=24.0,
             metavar='HOURS',
             help='training time')
+    parser.add_argument('--random-seed', type=int, default=123,
+            metavar='N',
+            help='random seed for repeatable sorting of data')
 
     args = parser.parse_args()
     args_vars = vars(args)
+
+    random.seed(args.random_seed)
 
     overridable_options = {
             'save_every': 1000,
@@ -597,7 +602,6 @@ def main():
 
         keep_sents = [i for i,pair in enumerate(zip(src_sents, trg_sents))
                       if accept_pair(pair)]
-        random.seed(123)
         random.shuffle(keep_sents)
         # test set is prepended to shuffled test set,
         # because the following code is built around the assumption
