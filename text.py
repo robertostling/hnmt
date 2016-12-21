@@ -53,12 +53,12 @@ class TextEncoder(object):
     def __len__(self):
         return len(self.vocab)
 
-    def encode_sequence(self, sequence, max_length=None):
+    def encode_sequence(self, sequence, max_length=None, dtype=np.int32):
         """
         returns:
             an Encoded namedtuple, with the following fields:
             sequence --
-                tuple of symbol indices.
+                numpy array of symbol indices.
                 Negative values index into the unknowns list,
                 while positive values index into the encoder lexicon.
             unknowns --
@@ -87,7 +87,7 @@ class TextEncoder(object):
             out = start + encoded + stop
         else:
             out = start + encoded[:max_length-(len(start)+len(stop))] + stop
-        return Encoded(out, unknowns)
+        return Encoded(np.asarray(out, dtype=dtype), unknowns)
 
     def decode_sentence(self, encoded):
         start = self.index.get('<S>')
