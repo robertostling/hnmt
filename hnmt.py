@@ -54,7 +54,7 @@ def local_sort(data, len_f, sort_size=16*32):
 
 def iterate_variable_batches(data, batch_budget, len_f,
                              const_weight=0, src_weight=0,
-                             tgt_weight=1, x_weight=0,
+                             tgt_weight=1, x_weight=0, c_weight=0,
                              sort_size=16*32):
     """Iterate over minibatches.
 
@@ -82,33 +82,49 @@ def iterate_variable_batches(data, batch_budget, len_f,
     x_weight : float
         A cost in "budget units" for the product of source and target lengths.
         Useful e.g. for attention.
+    c_weight : float
+        A cost in "budget units" for each character in the unknown tokens.
     sort_size : int
         How many sentences to sample for sorting.
     """
-    def within_budget(n, src, tgt):
+    def within_budget(n, src, tgt, chars):
         cost = n * (const_weight
                  + (src * src_weight)
                  + (tgt * tgt_weight)
-                 + (src * tgt * x_weight))
+                 + (src * tgt * x_weight)
+                 + (chars * c_weight))
         return cost < batch_budget
 
     minibatch = []
     max_src_len = 0
     max_tgt_len = 0
+    tot_unk_n = 0
+    max_unk_len = 0
     for sent in local_sort(data, len_f, sort_size=sort_size):
         src_len, tgt_len = len(sent[0].sequence), len(sent[1].sequence)
+        unk_n = len(sent[0].unknown)
+        if sent[0].unknown:
+            unk_len = max(len(x) for x in sent[0].unknown)
+        else:
+            unk_len = 0
         if within_budget(len(minibatch) + 1,
                          max(max_src_len, src_len),
-                         max(max_tgt_len, tgt_len)):
+                         max(max_tgt_len, tgt_len),
+                         (tot_unk_n + unk_n) * max(max_unk_len, unk_len)
+                        ):
             minibatch.append(sent)
             max_src_len = max(max_src_len, src_len)
             max_tgt_len = max(max_tgt_len, tgt_len)
+            tot_unk_n += unk_n
+            max_unk_len = max(max_unk_len, unk_len)
         else:
             yield minibatch
             # start a new minibatch containing rejected sentence
             minibatch = [sent]
             max_src_len = src_len
             max_tgt_len = tgt_len
+            tot_unk_n = unk_n
+            max_unk_len = unk_len
     # final incomplete minibatch
     yield minibatch
 
@@ -929,6 +945,7 @@ def main():
         src_weight = 1
         tgt_weight = 1
         x_weight = .045
+        c_weight = .01
         pair_length = combo_len(0, tgt_weight, x_weight)
 
         def validate(test_pairs, start_time, optimizer, logf, sent_nr):
@@ -967,7 +984,7 @@ def main():
                     train_pairs,
                     (100 + 600) * config['batch_budget'],
                     pair_length,
-                    const_weight, src_weight, tgt_weight, x_weight,
+                    const_weight, src_weight, tgt_weight, x_weight, c_weight,
                     sort_size=int(16 * config['batch_budget'])):
                 if logf and batch_nr % config['test_every'] == 0:
                     validate(test_pairs, start_time, optimizer, logf, sent_nr)
