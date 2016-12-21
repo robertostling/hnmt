@@ -32,7 +32,7 @@ except ImportError:
 
 def combo_len(src_weight, tgt_weight, x_weight):
     def _combo_len(pair):
-        src, tgt = len(pair[0]), len(pair[1])
+        src, tgt = len(pair[0].sequence), len(pair[1].sequence)
         return (  (src * src_weight)
                 + (tgt * tgt_weight)
                 + (src * tgt * x_weight))
