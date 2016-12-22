@@ -13,7 +13,8 @@ import numpy as np
 import theano
 from theano import tensor as T
 
-# FIXME: encoding in advance
+# encoding in advance
+# FIXME: either merge this into bnas, fork bnas, or make hnmt a proper package
 from text import TextEncoder
 
 from bnas.model import Model, Linear, Embeddings, LSTMSequence
@@ -524,8 +525,8 @@ def main():
     parser.add_argument('--batch-budget', type=float, default=argparse.SUPPRESS,
             metavar='X',
             help='minibatch budget during training. '
-                 'The optimal value depends on model size and available memory. '
-                 'Try values between 50 and 200')
+                 'The optimal value depends on model size and available GPU memory. '
+                 'Try values between 20 and 200')
     parser.add_argument('--log-file', type=str,
             metavar='FILE',
             help='name of training log file')
@@ -941,6 +942,8 @@ def main():
         start_time = time()
         end_time = start_time + 3600*args.training_time
 
+        # weight for the variable minibatch budget
+        # FIXME: these need to be properly tuned
         const_weight = 110
         src_weight = 1
         tgt_weight = 1
