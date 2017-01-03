@@ -325,6 +325,9 @@ class NMT(Model):
                         models_attended_dot_u[idx],
                         inputs_mask)
                     for idx in range(n_models)]
+            mean_attention = np.array(
+                    [models_result[idx][2] for idx in range(n_models)]
+                 ).mean(axis=0)
             models_predict = np.array(
                     [models[idx].predict_fun(models_result[idx][0])
                      for idx in range(n_models)])
