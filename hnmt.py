@@ -845,8 +845,9 @@ def main():
     # convenience function to perform translation.
     def translate(sents):
         for i in range(0, len(sents), config['batch_size']):
-            x = config['src_encoder'].pad_sequences(
-                    sents[i:i+config['batch_size']])
+            encoded = [config['src_encoder'].encode_sequence(sent)
+                       for sent in sents[i:i+config['batch_size']]]
+            x = config['src_encoder'].pad_sequences(encoded)
             pred, pred_mask, scores = model.search(
                     *(x + (config['max_target_length'],)),
                     beam_size=config['beam_size'], others=models[1:])
