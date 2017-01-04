@@ -846,10 +846,13 @@ def main():
 
     # By this point a model has been created or loaded, so we can define a
     # convenience function to perform translation.
-    def translate(sents):
+    def translate(sents, encode=False):
         for i in range(0, len(sents), config['batch_size']):
-            x = config['src_encoder'].pad_sequences(
-                    sents[i:i+config['batch_size']])
+            batch_sents = sents[i:i+config['batch_size']]
+            if encode:
+                batch_sents = [config['src_encoder'].encode_sequence(sent)
+                               for sent in batch_sents]
+            x = config['src_encoder'].pad_sequences(batch_sents)
             pred, pred_mask, scores = model.search(
                     *(x + (config['max_target_length'],)),
                     beam_size=config['beam_size'], others=models[1:])
@@ -894,7 +897,7 @@ def main():
                 args.translate,
                 config['source_tokenizer'],
                 config['source_lowercase'] == 'yes')
-        for i,sent in enumerate(translate(sents)):
+        for i,sent in enumerate(translate(sents, encode=True)):
             print('.', file=sys.stderr, flush=True, end='')
             print(sent, file=outf, flush=True)
         print(' done!', file=sys.stderr, flush=True)
@@ -1031,7 +1034,7 @@ def main():
 
                 if batch_nr % config['translate_every'] == 0:
                     t0 = time()
-                    test_dec = translate(translate_src)
+                    test_dec = translate(translate_src, encode=False)
                     for src, trg, trg_dec in zip(
                             translate_src, translate_trg, test_dec):
                         print('   SOURCE / TARGET / OUTPUT')
