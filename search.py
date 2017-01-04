@@ -5,6 +5,15 @@ from collections import namedtuple
 import theano
 import numpy as np
 
+Hypothesis = namedtuple(
+    'Hypothesis',
+    ['score',       # raw or adjusted score
+     'penalized',   # penalties already applied
+     'history',     # sequence up to last symbol
+     'last_sym',    # last symbol
+     'state',       # RNN state
+     'coverage']    # accumulated coverage
+
 def beam_with_coverage(
         step,
         states0,
@@ -12,12 +21,17 @@ def beam_with_coverage(
         start_symbol,
         stop_symbol,
         max_length,
+        source_length,
         beam_size=8,
-        min_length=0):
+        min_length=0,
+        alpha=0.2,
+        beta=0.2,
+        prune_margin=3.0):
     """Beam search algorithm.
 
     See the documentation for :meth:`greedy()`.
-    The only additional argument for this method is the opitonal `beam_size`.
+    The additional arguments are FIXME
+    prune_margin is misleadingly named beamsize in Wu et al 2016
 
     Returns
     -------
@@ -32,18 +46,44 @@ def beam_with_coverage(
         Log-probability of the sequences in `outputs`.
     """
 
+    # for each sentence in the batch, we have a separate beamset
+    beams = [[Hypothesis(0., False, [], start_symbol,
+                         [s[i, :] for s in states0],
+                         np.zeros((source_length,)))]
+             for i in range(batch_size)]
+
     n_states = len(states0)
 
     # (beam, position, batch)
-    sequence = np.full((1, 1, batch_size), start_symbol, dtype=np.int64)
+    #sequence = np.full((1, 1, batch_size), start_symbol, dtype=np.int64)
     # (beam, position, batch)
-    mask = np.ones((1, 1, batch_size), dtype=theano.config.floatX)
+    #mask = np.ones((1, 1, batch_size), dtype=theano.config.floatX)
     # (beam, batch, dims)
-    states = [s[None,:,:] for s in states0]
+    #states = [s[None,:,:] for s in states0]
     # (beam, batch)
-    scores = np.zeros((1, batch_size))
+    #scores = np.zeros((1, batch_size))
     # (beam, batch, source_position)
-    coverage = np.zeros((1, batch_size, FIXME))
+    #coverage = np.zeros((1, batch_size, source_length))
+
+    def build_step_inputs(beams):
+        # FIXME: don't include the finished hypotheses
+        tot_rows = sum(len(beam) for beam in beams)
+
+        states = []
+        prev_syms = np.zeros((1, tot_rows), dtype=np.int64)
+        mask = np.zeros((tot_rows,), dtype=theano.config.floatX)
+        idx_to_batch = []
+        for (i, beam) in enumerate(beams):
+            for hyp in beam:
+                j = len(idx_to_batch)
+                states.append(hyp.states)
+                prev_syms[0, j] = hyp.last_sym
+                mask[j] = (hyp.last_sym == stop_symbol)
+                idx_to_batch.append(i)
+        states = [np.array(x) for x in zip(*states)]
+        return (states, prev_syms, mask), idx_to_batch
+
+    ### FIXME: below this old stuff
 
     for i in range(max_length-2):
         # Current size of beam
@@ -75,29 +115,44 @@ def beam_with_coverage(
 
         # (batch_size, n_beams*n_symbols)
         all_dists = np.concatenate(list(all_dists), axis=-1)
+        n_hyps = all_dists.shape[-1]
+
+        # FIXME: new procedure
+        idx_to_beam = np.floor_divide(np.arange(n_hyps), n_symbols)
+        idx_to_sym = np.mod(np.arange(n_hyps), n_symbols)
+        # find best score in all_dists
+        # (batch_size,)
+        best = np.max(all_dists.T, axis=0)
+        # prune hyps with score > best + prune_margin
+        # (n_beams*n_symbols, batch_size)
+        keep = all_dists.T > best + prune_margin
+        pruned_dists = (all_dists.T)[keep]
+        idx_to_beam = FIXME
+        # if any remaining are newly finished, apply penalties
+        # sort by adjusted score, keep top
 
         # (beam_size, batch_size)
-        best = np.argsort(all_dists.T, axis=0)[-beam_size:, :]
+        top = np.argsort(all_dists.T, axis=0)[-beam_size:, :]
         # (beam_size, batch_size)
-        best_beam = np.floor_divide(best, n_symbols)
-        best_symbol = best - (n_symbols*best_beam)
+        top_beam = np.floor_divide(top, n_symbols)
+        top_symbol = top - (n_symbols*top_beam)
 
         # TODO: optimize by allocating sequence/mask in the beginning,
         #       then shrink if necessary before returning
         sequence = np.concatenate([
                 np.swapaxes(
-                    sequence[best_beam,:,np.arange(batch_size)[None,:]],
+                    sequence[top_beam,:,np.arange(batch_size)[None,:]],
                     1, 2),
-                best_symbol[:,None,:]], axis=1)
+                top_symbol[:,None,:]], axis=1)
         last_active = (sequence[:,-2,:] != stop_symbol)
         mask = np.concatenate([
                 np.swapaxes(
-                    mask[best_beam,:,np.arange(batch_size)[None,:]],
+                    mask[top_beam,:,np.arange(batch_size)[None,:]],
                     1, 2),
                 last_active[:,None,:]], axis=1)
-        states = [s[best_beam,np.arange(batch_size)[None,:],:]
+        states = [s[top_beam,np.arange(batch_size)[None,:],:]
                   for s in all_states]
-        scores = all_dists.T[best,np.arange(batch_size)[None,:]]
+        scores = all_dists.T[top,np.arange(batch_size)[None,:]]
 
         if not mask[:,-1,:].any():
             return sequence, mask, scores
