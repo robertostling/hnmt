@@ -15,7 +15,7 @@ from theano import tensor as T
 
 # encoding in advance
 # FIXME: either merge this into bnas, fork bnas, or make hnmt a proper package
-from text import TextEncoder
+from text import TextEncoder, Encoded
 from search import beam_with_coverage
 
 from bnas.model import Model, Linear, Embeddings, LSTMSequence
@@ -859,9 +859,9 @@ def main():
                     beam_size=config['beam_size'], others=models[1:])
             for (_, beam) in beams:
                 best = next(beam)
-                encoded = best.history + (best.last_sym,)
+                encoded = Encoded(best.history + (best.last_sym,), None)
                 yield detokenize(
-                    config['trg_encoder'].decode_sentence(encoded), # FIXME: decode_sentence wants an Encoded!
+                    config['trg_encoder'].decode_sentence(encoded),
                     config['target_tokenizer'])
 
     # Create padded 3D tensors for supervising attention, given word
