@@ -315,16 +315,15 @@ class NMT(Model):
                 for m in models]
 
 
-        def step(i, states, outputs, outputs_mask):
-            # FIXME: attended*2 and inputs_mask also need to be stored per hyp
+        def step(i, states, outputs, outputs_mask, sent_indices):
             models_result = [
                     models[idx].decoder.step_fun()(
                         models_embeddings[idx][outputs[-1]],
                         states[idx*n_states+0],
                         states[idx*n_states+1],
-                        models_init[idx][2],
-                        models_attended_dot_u[idx],
-                        inputs_mask)
+                        models_init[idx][2][:,sent_indices,...],
+                        models_attended_dot_u[idx][:,sent_indices,...],
+                        inputs_mask[:,sent_indices])
                     for idx in range(n_models)]
             mean_attention = np.array(
                     [models_result[idx][2] for idx in range(n_models)]

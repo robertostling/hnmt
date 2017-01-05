@@ -67,13 +67,16 @@ def beam_with_coverage(
         states = []
         prev_syms = np.zeros((1, len(active)), dtype=np.int64)
         mask = np.ones((len(active),), dtype=theano.config.floatX)
+        sent_indices = np.zeros((len(active),), dtype=np.int64)
         for (j, hyp) in enumerate(active):
             states.append(hyp.states)
             prev_syms[0, j] = hyp.last_sym
+            sent_indices[j] = hyp.sentence
         states = [np.array(x) for x in zip(*states)]
 
         # predict
-        all_states, all_dists, attention = step(i, states, prev_syms, mask)
+        all_states, all_dists, attention = step(
+            i, states, prev_syms, mask, sent_indices)
         if i <= min_length:
             all_dists[:, stop_symbol] = 1e-30
         n_symbols = all_dists.shape[-1]
