@@ -858,8 +858,10 @@ def main():
                     *(x + (config['max_target_length'],)),
                     beam_size=config['beam_size'], others=models[1:])
             for (_, beam) in beams:
+                best = next(beam)
+                encoded = best.history + (best.last_sym,)
                 yield detokenize(
-                    config['trg_encoder'].decode_sentence(beam[0]),
+                    config['trg_encoder'].decode_sentence(encoded),
                     config['target_tokenizer'])
 
     # Create padded 3D tensors for supervising attention, given word
