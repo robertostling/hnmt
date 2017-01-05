@@ -26,6 +26,7 @@ def beam_with_coverage(
         start_symbol,
         stop_symbol,
         max_length,
+        inputs_mask,
         beam_size=8,
         min_length=0,
         alpha=0.2,
@@ -78,6 +79,7 @@ def beam_with_coverage(
             i, states, prev_syms, mask, sent_indices)
         if i <= min_length:
             all_dists[:, stop_symbol] = 1e-30
+        all_dists = np.log(all_dists)
         n_symbols = all_dists.shape[-1]
 
         # preprune symbols
@@ -99,10 +101,13 @@ def beam_with_coverage(
                     lp = (((len_smooth + len(history) - 1.) ** alpha)
                           / ((len_smooth + 1.) ** alpha))
                     # coverage penalty
-                    cp = beta * np.sum(np.log(np.minimum(coverage, np.ones_like(coverage))))
+                    # apply mask: adding 1 to masked elements removes penalty
+                    coverage += inputs_mask[:, hyp.sentence]
+                    cp = beta * np.sum(np.log(
+                        np.minimum(coverage, np.ones_like(coverage))))
                     oldscore = score
                     score = (score / lp) + cp
-                    print('score before norm: {} after norm: {}'.format(oldscore, score))
+                    print('score before norm: {} after norm: {} (lp: {} cp: {}, len: {})'.format(oldscore, score, lp, cp, len(history)))
                 extended.append(
                     Hypothesis(hyp.sentence,
                                score,
@@ -117,4 +122,5 @@ def beam_with_coverage(
         for (_, group) in by_sentence(completed + extended):
             beams.extend(sorted(group, key=lambda hyp: -hyp.score)[:beam_size])
         #print('hyps after pruning {}'.format(len(beams)))
+        #print('score of 0: {}, score of 1: {}'.format(beams[0].score, beams[1].score))
     return by_sentence(beams)

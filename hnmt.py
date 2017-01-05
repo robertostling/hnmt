@@ -342,6 +342,7 @@ class NMT(Model):
                 self.config['trg_encoder']['<S>'],
                 self.config['trg_encoder']['</S>'],
                 max_length,
+                inputs_mask,
                 beam_size=beam_size)
 
     #def search_single(self, inputs, inputs_mask, chars, chars_mask, max_length,
