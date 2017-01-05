@@ -52,7 +52,7 @@ def beam_with_coverage(
 
     beams = [Hypothesis(i, 0., (), start_symbol,
                         [s[i, :] for s in states0],
-                        0.)
+                        1e-30)
              for i in range(batch_size)]
 
     n_states = len(states0)
@@ -91,6 +91,9 @@ def beam_with_coverage(
                 coverage = hyp.coverage + attention[j, :]
                 if symbol == stop_symbol:
                     # FIXME: preprune to avoid normalizing unnecessarily
+                    #lp = ((len_smooth + len(history)) ** alpha) / ((len_smooth + 1) ** alpha)
+                    #cp = beta * np.sum(np.log(np.minimum(coverage, np.ones_like(coverage))))
+                    #score = (log_p / lp) + cp
                     pass
                 extended.append(
                     Hypothesis(hyp.sentence,

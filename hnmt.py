@@ -861,7 +861,7 @@ def main():
                 best = next(beam)
                 encoded = best.history + (best.last_sym,)
                 yield detokenize(
-                    config['trg_encoder'].decode_sentence(encoded),
+                    config['trg_encoder'].decode_sentence(encoded), # FIXME: decode_sentence wants an Encoded!
                     config['target_tokenizer'])
 
     # Create padded 3D tensors for supervising attention, given word
