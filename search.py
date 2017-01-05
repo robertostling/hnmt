@@ -30,12 +30,13 @@ def beam_with_coverage(
         min_length=0,
         alpha=0.2,
         beta=0.2,
+        len_smooth=5.0,
         prune_margin=3.0):
     """Beam search algorithm.
 
     See the documentation for :meth:`greedy()`.
     The additional arguments are FIXME
-    prune_margin is misleadingly named beamsize in Wu et al 2016
+    prune_margin is misleadingly named beamsize in Wu et al 2016    FIXME: not used
 
     Returns
     -------
@@ -54,8 +55,6 @@ def beam_with_coverage(
                         [s[i, :] for s in states0],
                         1e-30)
              for i in range(batch_size)]
-
-    n_states = len(states0)
 
     for i in range(max_length-2):
         # build step inputs
@@ -81,20 +80,29 @@ def beam_with_coverage(
             all_dists[:, stop_symbol] = 1e-30
         n_symbols = all_dists.shape[-1]
 
+        # preprune symbols
+        # using beam_size+1, because score of stop_symbol
+        # may still become worse
+        best_symbols = np.argsort(all_dists, axis=1)[:, -(beam_size+1):]
+
         # extend active hypotheses
         extended = []
         for (j, hyp) in enumerate(active):
             history = hyp.history + (hyp.last_sym,)
-            for symbol in range(n_symbols):
+            for symbol in best_symbols[j, :]:
                 score = hyp.score + all_dists[j, symbol]
                 # attention: (batch, source_pos)
                 coverage = hyp.coverage + attention[j, :]
                 if symbol == stop_symbol:
-                    # FIXME: preprune to avoid normalizing unnecessarily
-                    #lp = ((len_smooth + len(history)) ** alpha) / ((len_smooth + 1) ** alpha)
-                    #cp = beta * np.sum(np.log(np.minimum(coverage, np.ones_like(coverage))))
-                    #score = (log_p / lp) + cp
-                    pass
+                    # length penalty
+                    # (history contains start symbol but not stop symbol)
+                    lp = (((len_smooth + len(history) - 1.) ** alpha)
+                          / ((len_smooth + 1.) ** alpha))
+                    # coverage penalty
+                    cp = beta * np.sum(np.log(np.minimum(coverage, np.ones_like(coverage))))
+                    oldscore = score
+                    score = (score / lp) + cp
+                    print('score before norm: {} after norm: {}'.format(oldscore, score))
                 extended.append(
                     Hypothesis(hyp.sentence,
                                score,
@@ -103,8 +111,10 @@ def beam_with_coverage(
                                [s[j, :] for s in all_states],
                                coverage))
 
-        # prune
+        #print('hyps before pruning: completed {} extended {}'.format(len(completed), len(extended)))
+        # prune hypotheses
         beams = []
         for (_, group) in by_sentence(completed + extended):
             beams.extend(sorted(group, key=lambda hyp: -hyp.score)[:beam_size])
+        #print('hyps after pruning {}'.format(len(beams)))
     return by_sentence(beams)
