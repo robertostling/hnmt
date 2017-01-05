@@ -316,6 +316,7 @@ class NMT(Model):
 
 
         def step(i, states, outputs, outputs_mask):
+            # FIXME: attended*2 and inputs_mask also need to be stored per hyp
             models_result = [
                     models[idx].decoder.step_fun()(
                         models_embeddings[idx][outputs[-1]],
