@@ -7,8 +7,8 @@ import numpy as np
 
 Hypothesis = namedtuple(
     'Hypothesis',
-    ['score',       # raw or adjusted score
-     'penalized',   # penalties already applied
+    ['sentence',    # index of sentence in minibatch
+     'score',       # raw or adjusted score
      'history',     # sequence up to last symbol
      'last_sym',    # last symbol
      'state',       # RNN state
@@ -46,10 +46,9 @@ def beam_with_coverage(
         Log-probability of the sequences in `outputs`.
     """
 
-    # for each sentence in the batch, we have a separate beamset
-    beams = [[Hypothesis(0., False, [], start_symbol,
-                         [s[i, :] for s in states0],
-                         np.zeros((source_length,)))]
+    beams = [Hypothesis(i, 0., (), start_symbol,
+                        [s[i, :] for s in states0],
+                        np.zeros((source_length,)))
              for i in range(batch_size)]
 
     n_states = len(states0)
@@ -65,23 +64,45 @@ def beam_with_coverage(
     # (beam, batch, source_position)
     #coverage = np.zeros((1, batch_size, source_length))
 
-    def build_step_inputs(beams):
-        # FIXME: don't include the finished hypotheses
-        tot_rows = sum(len(beam) for beam in beams)
+    for i in range(max_length-2):
+        # build step inputs
+        active = [hyp for hyp in beams if hyp.last_sym != stop_symbol]
+        completed = [hyp for hyp in beams if hyp.last_sym == stop_symbol]
 
         states = []
-        prev_syms = np.zeros((1, tot_rows), dtype=np.int64)
-        mask = np.zeros((tot_rows,), dtype=theano.config.floatX)
-        idx_to_batch = []
-        for (i, beam) in enumerate(beams):
-            for hyp in beam:
-                j = len(idx_to_batch)
-                states.append(hyp.states)
-                prev_syms[0, j] = hyp.last_sym
-                mask[j] = (hyp.last_sym == stop_symbol)
-                idx_to_batch.append(i)
+        prev_syms = np.zeros((1, len(active)), dtype=np.int64)
+        mask = np.ones((len(active),), dtype=theano.config.floatX)
+        for (j, hyp) in enumerate(active):
+            states.append(hyp.states)
+            prev_syms[0, j] = hyp.last_sym
         states = [np.array(x) for x in zip(*states)]
-        return (states, prev_syms, mask), idx_to_batch
+
+        # predict
+        all_states, all_dists, attention = step(i, states, prev_syms, mask)
+        if i <= min_length:
+            all_dists[:, stop_symbol] = 1e-30
+        n_symbols = all_dists.shape[-1]
+        # (target_pos, batch, source_pos) -> (batch, source_pos)
+        attention = attention.sum(axis=0)
+
+        # extend active hypotheses
+        extended = []
+        for (j, hyp) in enumerate(active):
+            history = hyp.history + hyp.last_sym
+            for symbol in range(n_symbols):
+                score = hyp.score + all_dists[j, symbol]
+                if symbol == stop_symbol:
+                    # FIXME: preprune to avoid normalizing unnecessarily
+                    pass
+                extended.append(
+                    Hypothesis(hyp.sentence,
+                               score,
+                               history,
+                               symbol,
+                               [s[j, :] for s in all_states],
+                               hyp.coverage + attention[j, :])
+
+        # prune
 
     ### FIXME: below this old stuff
 
