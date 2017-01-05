@@ -16,6 +16,7 @@ from theano import tensor as T
 # encoding in advance
 # FIXME: either merge this into bnas, fork bnas, or make hnmt a proper package
 from text import TextEncoder
+from search import beam_with_coverage
 
 from bnas.model import Model, Linear, Embeddings, LSTMSequence
 from bnas.optimize import Adam, iterate_batches
@@ -23,7 +24,6 @@ from bnas.init import Gaussian
 from bnas.utils import softmax_3d
 from bnas.loss import batch_sequence_crossentropy
 from bnas.fun import function
-from bnas.search import beam
 
 try:
     from efmaral import align_soft
@@ -332,9 +332,10 @@ class NMT(Model):
                     [models[idx].predict_fun(models_result[idx][0])
                      for idx in range(n_models)])
             dist = models_predict.mean(axis=0)
-            return [x for result in models_result for x in result[:2]], dist
+            return ([x for result in models_result for x in result[:2]],
+                    dist, mean_attention)
 
-        return beam(
+        return beam_with_coverage(
                 step,
                 [x for h_0, c_0, _ in models_init for x in [h_0, c_0]],
                 models_init[0][0].shape[0],
@@ -343,20 +344,20 @@ class NMT(Model):
                 max_length,
                 beam_size=beam_size)
 
-    def search_single(self, inputs, inputs_mask, chars, chars_mask, max_length,
-               beam_size=8):
-        h_0, c_0, attended = self.encode_fun(
-                inputs, inputs_mask, chars, chars_mask)
-        return self.decoder.search(
-                self.predict_fun,
-                self.trg_embeddings._w.get_value(borrow=True),
-                self.config['trg_encoder']['<S>'],
-                self.config['trg_encoder']['</S>'],
-                max_length,
-                h_0=h_0, c_0=c_0,
-                attended=attended,
-                attention_mask=inputs_mask,
-                beam_size=beam_size)
+    #def search_single(self, inputs, inputs_mask, chars, chars_mask, max_length,
+    #           beam_size=8):
+    #    h_0, c_0, attended = self.encode_fun(
+    #            inputs, inputs_mask, chars, chars_mask)
+    #    return self.decoder.search(
+    #            self.predict_fun,
+    #            self.trg_embeddings._w.get_value(borrow=True),
+    #            self.config['trg_encoder']['<S>'],
+    #            self.config['trg_encoder']['</S>'],
+    #            max_length,
+    #            h_0=h_0, c_0=c_0,
+    #            attended=attended,
+    #            attention_mask=inputs_mask,
+    #            beam_size=beam_size)
 
     def encode(self, inputs, inputs_mask, chars, chars_mask):
         # First run a bidirectional LSTM encoder over the unknown word
@@ -853,13 +854,13 @@ def main():
                 batch_sents = [config['src_encoder'].encode_sequence(sent)
                                for sent in batch_sents]
             x = config['src_encoder'].pad_sequences(batch_sents)
-            pred, pred_mask, scores = model.search(
+            beams = model.search(
                     *(x + (config['max_target_length'],)),
                     beam_size=config['beam_size'], others=models[1:])
-            decoded = config['trg_encoder'].decode_padded(
-                    pred[-1], pred_mask[-1])
-            for sent in decoded:
-                yield detokenize(sent, config['target_tokenizer'])
+            for (_, beam) in beams:
+                yield detokenize(
+                    config['trg_encoder'].decode_sentence(beam[0]),
+                    config['target_tokenizer'])
 
     # Create padded 3D tensors for supervising attention, given word
     # alignments.

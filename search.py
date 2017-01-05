@@ -12,8 +12,8 @@ Hypothesis = namedtuple(
      'score',       # raw or adjusted score
      'history',     # sequence up to last symbol
      'last_sym',    # last symbol
-     'state',       # RNN state
-     'coverage']    # accumulated coverage
+     'states',      # RNN state
+     'coverage'])   # accumulated coverage
 
 def by_sentence(beams):
     key = lambda hyp: hyp.sentence
@@ -77,15 +77,14 @@ def beam_with_coverage(
         if i <= min_length:
             all_dists[:, stop_symbol] = 1e-30
         n_symbols = all_dists.shape[-1]
-        # (target_pos, batch, source_pos) -> (batch, source_pos)
-        attention = attention.sum(axis=0)
 
         # extend active hypotheses
         extended = []
         for (j, hyp) in enumerate(active):
-            history = hyp.history + hyp.last_sym
+            history = hyp.history + (hyp.last_sym,)
             for symbol in range(n_symbols):
                 score = hyp.score + all_dists[j, symbol]
+                # attention: (batch, source_pos)
                 coverage = hyp.coverage + attention[j, :]
                 if symbol == stop_symbol:
                     # FIXME: preprune to avoid normalizing unnecessarily
@@ -96,7 +95,7 @@ def beam_with_coverage(
                                history,
                                symbol,
                                [s[j, :] for s in all_states],
-                               coverage)
+                               coverage))
 
         # prune
         beams = []
