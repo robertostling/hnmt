@@ -18,7 +18,8 @@ Hypothesis = namedtuple(
 
 def by_sentence(beams):
     return itertools.groupby(
-        sorted(beams, key=lambda hyp: (hyp.sentence, hyp.norm_score)),
+        sorted(beams,
+               key=lambda hyp: (hyp.sentence, hyp.norm_score, hyp.score)),
         lambda hyp: hyp.sentence)
 
 def beam_with_coverage(
@@ -54,7 +55,7 @@ def beam_with_coverage(
         Log-probability of the sequences in `outputs`.
     """
 
-    beams = [Hypothesis(i, 0., None, (), start_symbol,
+    beams = [Hypothesis(i, 0., -1e30, (), start_symbol,
                         [s[i, :] for s in states0],
                         1e-30)
              for i in range(batch_size)]
@@ -95,7 +96,7 @@ def beam_with_coverage(
             history = hyp.history + (hyp.last_sym,)
             for symbol in best_symbols[j, :]:
                 score = hyp.score + all_dists[j, symbol]
-                norm_score = None
+                norm_score = -1e30
                 # attention: (batch, source_pos)
                 coverage = hyp.coverage + attention[j, :]
                 if symbol == stop_symbol:
@@ -125,14 +126,16 @@ def beam_with_coverage(
                                [s[j, :] for s in all_states],
                                coverage))
 
-        #print('hyps before pruning: completed {} extended {}'.format(len(completed), len(extended)))
         # prune hypotheses
         beams = []
         for (_, group) in by_sentence(completed + extended):
-            best_normalized = max(group, keyp=hyp.norm_score)
+            group = list(group)
+            #print('hyps before pruning: {}'.format(len(group)))
+            best_normalized = max(hyp.norm_score for hyp in group)
             group = [hyp for hyp in group
-                     if hyp.norm_score is None
+                     if hyp.last_sym != stop_symbol
                         or hyp.norm_score > best_normalized - prune_margin]
+            #print('hyps after pruning with {} - {}: {}'.format(best_normalized, prune_margin, len(group)))
             beams.extend(sorted(group, key=lambda hyp: -hyp.score)[:beam_size])
         #print('hyps after pruning {}'.format(len(beams)))
         #print('score of 0: {}, score of 1: {}'.format(beams[0].score, beams[1].score))
