@@ -9,15 +9,17 @@ import theano
 Hypothesis = namedtuple(
     'Hypothesis',
     ['sentence',    # index of sentence in minibatch
-     'score',       # raw or adjusted score
+     'score',       # raw score
+     'norm_score',  # score adjusted by penalties
      'history',     # sequence up to last symbol
      'last_sym',    # last symbol
      'states',      # RNN state
      'coverage'])   # accumulated coverage
 
 def by_sentence(beams):
-    key = lambda hyp: hyp.sentence
-    return itertools.groupby(sorted(beams, key=key), key)
+    return itertools.groupby(
+        sorted(beams, key=lambda hyp: (hyp.sentence, hyp.norm_score)),
+        lambda hyp: hyp.sentence)
 
 def beam_with_coverage(
         step,
@@ -37,7 +39,7 @@ def beam_with_coverage(
 
     See the documentation for :meth:`greedy()`.
     The additional arguments are FIXME
-    prune_margin is misleadingly named beamsize in Wu et al 2016    FIXME: not used
+    prune_margin is misleadingly named beamsize in Wu et al 2016
 
     Returns
     -------
@@ -52,7 +54,7 @@ def beam_with_coverage(
         Log-probability of the sequences in `outputs`.
     """
 
-    beams = [Hypothesis(i, 0., (), start_symbol,
+    beams = [Hypothesis(i, 0., None, (), start_symbol,
                         [s[i, :] for s in states0],
                         1e-30)
              for i in range(batch_size)]
@@ -93,6 +95,7 @@ def beam_with_coverage(
             history = hyp.history + (hyp.last_sym,)
             for symbol in best_symbols[j, :]:
                 score = hyp.score + all_dists[j, symbol]
+                norm_score = None
                 # attention: (batch, source_pos)
                 coverage = hyp.coverage + attention[j, :]
                 if symbol == stop_symbol:
@@ -111,12 +114,12 @@ def beam_with_coverage(
                             np.minimum(coverage, np.ones_like(coverage))))
                     else:
                         cp = 0
-                    oldscore = score    # debug
-                    score = (score / lp) + cp
-                    #print('score before norm: {} after norm: {} (lp: {} cp: {}, len: {})'.format(oldscore, score, lp, cp, len(history)))
+                    norm_score = (score / lp) + cp
+                    #print('score before norm: {} after norm: {} (lp: {} cp: {}, len: {})'.format(score, norm_score, lp, cp, len(history)))
                 extended.append(
                     Hypothesis(hyp.sentence,
                                score,
+                               norm_score,
                                history,
                                symbol,
                                [s[j, :] for s in all_states],
@@ -126,6 +129,10 @@ def beam_with_coverage(
         # prune hypotheses
         beams = []
         for (_, group) in by_sentence(completed + extended):
+            best_normalized = max(group, keyp=hyp.norm_score)
+            group = [hyp for hyp in group
+                     if hyp.norm_score is None
+                        or hyp.norm_score > best_normalized - prune_margin]
             beams.extend(sorted(group, key=lambda hyp: -hyp.score)[:beam_size])
         #print('hyps after pruning {}'.format(len(beams)))
         #print('score of 0: {}, score of 1: {}'.format(beams[0].score, beams[1].score))
