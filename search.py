@@ -31,11 +31,13 @@ def beam_with_coverage(
         min_length=0,
         alpha=0.2,
         beta=0.2,
-        len_smooth=5.0):
+        len_smooth=5.0,
+        prune_margin=3.0):
     """Beam search algorithm.
 
     See the documentation for :meth:`greedy()`.
     The additional arguments are FIXME
+    prune_margin is misleadingly named beamsize in Wu et al 2016    FIXME: not used
 
     Returns
     -------
