@@ -294,7 +294,8 @@ class NMT(Model):
 
 
     def search(self, inputs, inputs_mask, chars, chars_mask,
-               max_length, beam_size=8, others=[]):
+               max_length, beam_size=8,
+               alpha=0.2, beta=0.2, len_smooth=5.0, others=[]):
         # list of models in the ensemble
         models = [self] + others
         n_models = len(models)
@@ -343,7 +344,10 @@ class NMT(Model):
                 self.config['trg_encoder']['</S>'],
                 max_length,
                 inputs_mask,
-                beam_size=beam_size)
+                beam_size=beam_size,
+                alpha=alpha,
+                beta=beta,
+                len_smooth=len_smooth)
 
     #def search_single(self, inputs, inputs_mask, chars, chars_mask, max_length,
     #           beam_size=8):
@@ -484,6 +488,15 @@ def main():
     parser.add_argument('--beam-size', type=int, default=argparse.SUPPRESS,
             metavar='N',
             help='beam size during translation')
+    parser.add_argument('--alpha', type=float, default=argparse.SUPPRESS,
+            metavar='X',
+            help='length penalty weight during beam translation')
+    parser.add_argument('--beta', type=float, default=argparse.SUPPRESS,
+            metavar='X',
+            help='coverage penalty weight during beam translation')
+    parser.add_argument('--len-smooth', type=float, default=argparse.SUPPRESS,
+            metavar='X',
+            help='smoothing constant for length penalty during beam translation')
     parser.add_argument('--save-every', type=int, default=argparse.SUPPRESS,
             metavar='N',
             help='save model every N training batches')
@@ -615,7 +628,10 @@ def main():
             'target': None,
             'test_source': None,
             'test_target': None,
-            'beam_size': 8 }
+            'beam_size': 8,
+            'alpha': 0.2,
+            'beta': 0.2,
+            'len_smooth': 5.0,}
 
     if args.translate:
         models = []
@@ -629,6 +645,13 @@ def main():
                 models[-1].load(f)
         model = models[0]
         config = configs[0]
+        # allow loading old models without these parameters
+        if 'alpha' not in config:
+            config['alpha'] = 0.2
+        if 'beta' not in config:
+            config['beta'] = 0.2
+        if 'len_smooth' not in config:
+            config['len_smooth'] = 5.0
         for c in configs[1:]:
             assert c['trg_encoder'].vocab == config['trg_encoder'].vocab
         if args.ensemble_average:
@@ -650,9 +673,15 @@ def main():
         if args.load_model:
             with open(args.load_model, 'rb') as f:
                 config = pickle.load(f)
-                # allow loading old models without decay parameter
+                # allow loading old models without these parameters
                 if 'alignment_decay' not in config:
                     config['alignment_decay'] = 0.9995
+                if 'alpha' not in config:
+                    config['alpha'] = 0.2
+                if 'beta' not in config:
+                    config['beta'] = 0.2
+                if 'len_smooth' not in config:
+                    config['len_smooth'] = 5.0
                 model = NMT('nmt', config)
                 model.load(f)
                 models = [model]
@@ -857,7 +886,11 @@ def main():
             x = config['src_encoder'].pad_sequences(batch_sents)
             beams = model.search(
                     *(x + (config['max_target_length'],)),
-                    beam_size=config['beam_size'], others=models[1:])
+                    beam_size=config['beam_size'],
+                    alpha=config['alpha'],
+                    beta=config['beta'],
+                    len_smooth=config['len_smooth'],
+                    others=models[1:])
             for (_, beam) in beams:
                 best = next(beam)
                 encoded = Encoded(best.history + (best.last_sym,), None)

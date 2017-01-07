@@ -96,16 +96,22 @@ def beam_with_coverage(
                 if symbol == stop_symbol:
                     # length penalty
                     # (history contains start symbol but not stop symbol)
-                    lp = (((len_smooth + len(history) - 1.) ** alpha)
-                          / ((len_smooth + 1.) ** alpha))
+                    if alpha > 0:
+                        lp = (((len_smooth + len(history) - 1.) ** alpha)
+                            / ((len_smooth + 1.) ** alpha))
+                    else:
+                        lp = 1
                     # coverage penalty
                     # apply mask: adding 1 to masked elements removes penalty
-                    coverage += inputs_mask[:, hyp.sentence]
-                    cp = beta * np.sum(np.log(
-                        np.minimum(coverage, np.ones_like(coverage))))
-                    oldscore = score
+                    if beta > 0:
+                        coverage += inputs_mask[:, hyp.sentence]
+                        cp = beta * np.sum(np.log(
+                            np.minimum(coverage, np.ones_like(coverage))))
+                    else:
+                        cp = 0
+                    oldscore = score    # debug
                     score = (score / lp) + cp
-                    print('score before norm: {} after norm: {} (lp: {} cp: {}, len: {})'.format(oldscore, score, lp, cp, len(history)))
+                    #print('score before norm: {} after norm: {} (lp: {} cp: {}, len: {})'.format(oldscore, score, lp, cp, len(history)))
                 extended.append(
                     Hypothesis(hyp.sentence,
                                score,
