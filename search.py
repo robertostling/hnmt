@@ -19,7 +19,7 @@ Hypothesis = namedtuple(
 def by_sentence(beams):
     return itertools.groupby(
         sorted(beams,
-               key=lambda hyp: (hyp.sentence, hyp.norm_score, hyp.score)),
+               key=lambda hyp: (hyp.sentence, -hyp.norm_score, -hyp.score)),
         lambda hyp: hyp.sentence)
 
 def beam_with_coverage(
