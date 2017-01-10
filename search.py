@@ -110,7 +110,7 @@ def beam_with_coverage(
                     # coverage penalty
                     # apply mask: adding 1 to masked elements removes penalty
                     if beta > 0:
-                        coverage += inputs_mask[:, hyp.sentence]
+                        coverage += (1. - inputs_mask[:, hyp.sentence])
                         cp = beta * np.sum(np.log(
                             np.minimum(coverage, np.ones_like(coverage))))
                     else:
