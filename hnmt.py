@@ -238,6 +238,9 @@ class NMT(Model):
         self.encode_fun = function(self.x, self.encode(*self.x))
         self.xent_fun = function(self.x+self.y, self.xent(*(self.x+self.y)))
 
+        # stats
+        self.beam_ends = np.zeros((config['max_target_length'],))
+
     def xent(self, inputs, inputs_mask, chars, chars_mask,
              outputs, outputs_mask, attention):
         pred_outputs, pred_attention = self(
@@ -336,7 +339,7 @@ class NMT(Model):
             return ([x for result in models_result for x in result[:2]],
                     dist, mean_attention)
 
-        return beam_with_coverage(
+        result, i = beam_with_coverage(
                 step,
                 [x for h_0, c_0, _ in models_init for x in [h_0, c_0]],
                 models_init[0][0].shape[0],
@@ -348,6 +351,8 @@ class NMT(Model):
                 alpha=alpha,
                 beta=beta,
                 len_smooth=len_smooth)
+        self.beam_ends[i] += 1
+        return result
 
     #def search_single(self, inputs, inputs_mask, chars, chars_mask, max_length,
     #           beam_size=8):
@@ -897,6 +902,14 @@ def main():
                 yield detokenize(
                     config['trg_encoder'].decode_sentence(encoded),
                     config['target_tokenizer'])
+            if i % (50*config['batch_size']) == 0:
+                print('\nmean beam search length: {}'.format(
+                    np.sum(model.beam_ends * np.arange(len(model.beam_ends))) /
+                    np.sum(model.beam_ends)))
+        print('\nFinal mean beam search length: {}'.format(
+            np.sum(model.beam_ends * np.arange(len(model.beam_ends))) /
+            np.sum(model.beam_ends)))
+        print('beam end counts: {}'.format(model.beam_ends))
 
     # Create padded 3D tensors for supervising attention, given word
     # alignments.

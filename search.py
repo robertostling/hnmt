@@ -65,7 +65,7 @@ def beam_with_coverage(
         active = [hyp for hyp in beams if hyp.last_sym != stop_symbol]
         completed = [hyp for hyp in beams if hyp.last_sym == stop_symbol]
         if len(active) == 0:
-            return by_sentence(beams)
+            return by_sentence(beams), i
 
         states = []
         prev_syms = np.zeros((1, len(active)), dtype=np.int64)
@@ -139,4 +139,4 @@ def beam_with_coverage(
             beams.extend(sorted(group, key=lambda hyp: -hyp.score)[:beam_size])
         #print('hyps after pruning {}'.format(len(beams)))
         #print('score of 0: {}, score of 1: {}'.format(beams[0].score, beams[1].score))
-    return by_sentence(beams)
+    return by_sentence(beams), max_length - 1
