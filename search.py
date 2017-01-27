@@ -32,10 +32,11 @@ def beam_with_coverage(
         inputs_mask,
         beam_size=8,
         min_length=0,
-        alpha=0.2,
-        beta=0.2,
+        alpha=0.01,
+        beta=0.4,
+        gamma=1.0,
         len_smooth=5.0,
-        speed_prune=0.5):
+        speed_prune=1.0):
     """Beam search algorithm.
 
     See the documentation for :meth:`greedy()`.
@@ -114,7 +115,12 @@ def beam_with_coverage(
                             np.minimum(coverage, np.ones_like(coverage))))
                     else:
                         cp = 0
-                    norm_score = (score / lp) + cp
+                    # overattending penalty
+                    if gamma > 0:
+                        oap = gamma * -max(0, np.max(coverage) - 1.)
+                    else:
+                        oap = 0
+                    norm_score = (score / lp) + cp + oap
                     #print('score before norm: {} after norm: {} (lp: {} cp: {}, len: {})'.format(score, norm_score, lp, cp, len(history)))
                 extended.append(
                     Hypothesis(hyp.sentence,

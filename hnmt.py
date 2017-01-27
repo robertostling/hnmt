@@ -298,7 +298,7 @@ class NMT(Model):
 
     def search(self, inputs, inputs_mask, chars, chars_mask,
                max_length, beam_size=8,
-               alpha=0.2, beta=0.2, len_smooth=5.0, others=[]):
+               alpha=0.2, beta=0.2, gamma=1.0, len_smooth=5.0, others=[]):
         # list of models in the ensemble
         models = [self] + others
         n_models = len(models)
@@ -350,6 +350,7 @@ class NMT(Model):
                 beam_size=beam_size,
                 alpha=alpha,
                 beta=beta,
+                gamma=gamma,
                 len_smooth=len_smooth)
         self.beam_ends[i] += 1
         return result
@@ -499,6 +500,9 @@ def main():
     parser.add_argument('--beta', type=float, default=argparse.SUPPRESS,
             metavar='X',
             help='coverage penalty weight during beam translation')
+    parser.add_argument('--gamma', type=float, default=argparse.SUPPRESS,
+            metavar='X',
+            help='overattention penalty weight during beam translation')
     parser.add_argument('--len-smooth', type=float, default=argparse.SUPPRESS,
             metavar='X',
             help='smoothing constant for length penalty during beam translation')
@@ -634,8 +638,9 @@ def main():
             'test_source': None,
             'test_target': None,
             'beam_size': 8,
-            'alpha': 0.2,
-            'beta': 0.2,
+            'alpha': 0.01,
+            'beta': 0.4,
+            'gamma': 1.0,
             'len_smooth': 5.0,}
 
     if args.translate:
@@ -652,9 +657,11 @@ def main():
         config = configs[0]
         # allow loading old models without these parameters
         if 'alpha' not in config:
-            config['alpha'] = 0.2
+            config['alpha'] = 0.01
         if 'beta' not in config:
-            config['beta'] = 0.2
+            config['beta'] = 0.4
+        if 'gamma' not in config:
+            config['gamma'] = 1.0
         if 'len_smooth' not in config:
             config['len_smooth'] = 5.0
         for c in configs[1:]:
@@ -685,6 +692,8 @@ def main():
                     config['alpha'] = 0.2
                 if 'beta' not in config:
                     config['beta'] = 0.2
+                if 'gamma' not in config:
+                    config['gamma'] = 1.0
                 if 'len_smooth' not in config:
                     config['len_smooth'] = 5.0
                 model = NMT('nmt', config)
@@ -894,6 +903,7 @@ def main():
                     beam_size=config['beam_size'],
                     alpha=config['alpha'],
                     beta=config['beta'],
+                    gamma=config['gamma'],
                     len_smooth=config['len_smooth'],
                     others=models[1:])
             for (_, beam) in beams:
