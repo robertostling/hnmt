@@ -35,12 +35,11 @@ def beam_with_coverage(
         alpha=0.2,
         beta=0.2,
         len_smooth=5.0,
-        prune_margin=3.0):
+        speed_prune=0.5):
     """Beam search algorithm.
 
     See the documentation for :meth:`greedy()`.
     The additional arguments are FIXME
-    prune_margin is misleadingly named beamsize in Wu et al 2016
 
     Returns
     -------
@@ -126,15 +125,24 @@ def beam_with_coverage(
                                [s[j, :] for s in all_states],
                                coverage))
 
+        # maximal length discount
+        #max_lp = (((len_smooth + max_length - 2.) ** alpha)
+        #    / ((len_smooth + 1.) ** alpha))
+
         # prune hypotheses
+        def keep(hyp, best_normalized):
+            if hyp.last_sym == stop_symbol:
+                # only keep best completed hypothesis
+                return hyp.norm_score > best_normalized - 1e-6
+            else:
+                # active hypothesis: use margin to prune for speed
+                return hyp.score > best_normalized * speed_prune
         beams = []
         for (_, group) in by_sentence(completed + extended):
             group = list(group)
             #print('hyps before pruning: {}'.format(len(group)))
             best_normalized = max(hyp.norm_score for hyp in group)
-            group = [hyp for hyp in group
-                     if hyp.last_sym != stop_symbol
-                        or hyp.norm_score > best_normalized - prune_margin]
+            group = [hyp for hyp in group if keep(hyp, best_normalized)]
             #print('hyps after pruning with {} - {}: {}'.format(best_normalized, prune_margin, len(group)))
             beams.extend(sorted(group, key=lambda hyp: -hyp.score)[:beam_size])
         #print('hyps after pruning {}'.format(len(beams)))
