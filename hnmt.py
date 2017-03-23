@@ -356,9 +356,15 @@ def main():
     parser.add_argument('--load-model', type=str,
             metavar='FILE(s)',
             help='name of the model file(s) to load from, comma-separated list')
+    parser.add_argument('--load-submodel', type=str,
+            metavar='FILE(s)',
+            help='name of the submodel file(s) to load from, comma-separated list of modelname=file')
     parser.add_argument('--save-model', type=str,
             metavar='FILE',
             help='name of the model file to save to')
+    parser.add_argument('--split-model', type=str,
+            metavar='FILE',
+            help='split an existing model into separate files for each submodule')
     parser.add_argument('--ensemble-average', action='store_true',
             help='ensemble models by averaging parameters')
     parser.add_argument('--translate', type=str,
@@ -474,6 +480,7 @@ def main():
             'target': None,
             'beam_size': 8 }
 
+
     if args.translate:
         models = []
         configs = []
@@ -502,6 +509,26 @@ def main():
 
         for option in overridable_options:
             if option in args_vars: config[option] = args_vars[option]
+
+    # split a modelfile into submodel files
+    # (NOTE: this also saves the config for the whole model)
+    elif args.split_model:
+        if args.load_model:
+            with open(args.load_model, 'rb') as f:
+                config = pickle.load(f)
+                model = NMT('nmt', config)
+                model.load(f)
+            filebase = args.split_model
+            for submodel in model.submodels.values():
+                filename = filebase + '.' + submodel.name
+                print('save submodel %s' % (filename),
+                      file=sys.stderr, flush=True)
+                with open(filename, 'wb') as f:
+                    pickle.dump(config, f)
+                    submodel.save(f)
+        else:
+            quit('Use --load-model to specify model to be split!');
+
     else:
         print('HNMT: starting training...', file=sys.stderr, flush=True)
         if args.load_model:
@@ -509,15 +536,32 @@ def main():
                 config = pickle.load(f)
                 model = NMT('nmt', config)
                 model.load(f)
+
+                ## overwrite some submodels if specified on command-line
+                ## TODO: do I need this here or is enough to overwrite 
+                ## model parameters later after creating the optimizer?
+                #if args.load_submodel:
+                #    for filespec in args.load_submodel.split(','):
+                #        modelname,filename = filespec.split('=')
+                #        with open(filename, 'rb') as f:
+                #            print('HNMT: loading submodel %s from %s ...' % (modelname,filename),
+                #                  file=sys.stderr, flush=True)
+                #            ## TODO: should check that the submodel config is compatible with model config
+                #            submodel_config = pickle.load(f)
+                #            getattr(model,modelname).load(f)
+
                 models = [model]
                 optimizer = model.create_optimizer()
                 if args.learning_rate:
                     optimizer.learning_rate = args.learning_rate
-                optimizer.load(f)
+                ## load optimizer states unless there are submodels to be loaded later
+                if not args.load_submodel:
+                    optimizer.load(f)
             print('Continuing training from update %d...'%optimizer.n_updates,
                   flush=True)
             for option in overridable_options:
                 if option in args_vars: config[option] = args_vars[option]
+
         else:
             assert args.save_model
             assert not os.path.exists(args.save_model)
@@ -665,6 +709,18 @@ def main():
             optimizer = model.create_optimizer()
             if args.learning_rate:
                 optimizer.learning_rate = args.learning_rate
+
+        ## load submodel parameters (overwrite existing ones)
+        if args.load_submodel:
+            for filespec in args.load_submodel.split(','):
+                modelname,filename = filespec.split('=')
+                with open(filename, 'rb') as f:
+                    print('HNMT: loading submodel %s from %s ...' % (modelname,filename),
+                          file=sys.stderr, flush=True)
+                    ## TODO: should check that the submodel config is compatible with model config
+                    submodel_config = pickle.load(f)
+                    getattr(model,modelname).load(f)
+
 
     # By this point a model has been created or loaded, so we can define a
     # convenience function to perform translation.
