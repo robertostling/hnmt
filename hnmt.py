@@ -8,7 +8,7 @@ import random
 from pprint import pprint
 
 from nltk import word_tokenize, wordpunct_tokenize
-from nltk.translate.bleu_score import sentence_bleu, corpus_bleu
+from nltk.translate.bleu_score import SmoothingFunction, corpus_bleu
 from nltk.translate.chrf_score import corpus_chrf
 
 import numpy as np
@@ -379,7 +379,8 @@ def main():
     parser.add_argument('--translate', type=str,
             metavar='FILE',
             help='name of file to translate')
-    parser.add_argument('--nbest-list', type=int, default=argparse.SUPPRESS,
+    parser.add_argument('--nbest-list', type=int,
+            default=0,
             metavar='N',
             help='print n-best list in translation model')
     parser.add_argument('--reference', type=str,
@@ -821,17 +822,18 @@ def main():
 
         # compute BLEU if reference file is given
         if args.reference:
-            trg = read_sent(args.reference,
-                            config['target_tokenizer'],
-                            config['target_lowercase'] == 'yes')
+            trg = read_sents(args.reference,
+                             config['target_tokenizer'],
+                             config['target_lowercase'] == 'yes')
+            smoothing = SmoothingFunction()
             if config['target_tokenizer'] == 'char':
                 system = [ word_tokenize(detokenize(s,'char')) for s in hypotheses ]
                 reference = [ word_tokenize(detokenize(s,'char')) for s in trg ]
-                print('BLEU = %f' % corpus_bleu(reference,system))
+                print('BLEU = %f' % corpus_bleu(reference,system, smoothing_function=smoothing.method3))
                 print('CHRF = %f' % corpus_chrf(reference,system))
             else:
                 system = [ s.split() for s in hypotheses ]
-                print('BLEU = %f' % corpus_bleu(trg,system))
+                print('BLEU = %f' % corpus_bleu(trg,system, smoothing_function=smoothing.method3))
                 print('CHRF = %f' % corpus_chrf(trg,system))
 
     else:
@@ -958,14 +960,15 @@ def main():
                     print('Translation finished: %.2f s' % (time()-t0),
                           flush=True)
                     # compute BLEU on test set (word-tokenize if necessary)
+                    smoothing = SmoothingFunction()
                     if config['target_tokenizer'] == 'char':
                         system = [ word_tokenize(detokenize(s,'char')) for s in test_dec ]
                         reference = [ word_tokenize(detokenize(s,'char')) for s in test_trg ]
-                        print('BLEU = %f' % corpus_bleu(reference,system))
+                        print('BLEU = %f' % corpus_bleu(reference,system, smoothing_function=smoothing.method3))
                         print('CHRF = %f' % corpus_chrf(reference,system))
                     else:
                         system = [ s.split() for s in test_dec ]
-                        print('BLEU = %f' % corpus_bleu(test_trg, system))
+                        print('BLEU = %f' % corpus_bleu(test_trg, system, smoothing_function=smoothing.method3))
                         print('CHRF = %f' % corpus_chrf(test_trg, system))
 
                 # TODO: add options etc
