@@ -829,11 +829,11 @@ def main():
             if config['target_tokenizer'] == 'char':
                 system = [ word_tokenize(detokenize(s,'char')) for s in hypotheses ]
                 reference = [ word_tokenize(detokenize(s,'char')) for s in trg ]
-                print('BLEU = %f' % corpus_bleu(reference,system, smoothing_function=smoothing.method3))
+                print('BLEU = %f' % corpus_bleu([reference],system, smoothing_function=smoothing.method1))
                 print('CHRF = %f' % corpus_chrf(reference,system))
             else:
                 system = [ s.split() for s in hypotheses ]
-                print('BLEU = %f' % corpus_bleu(trg,system, smoothing_function=smoothing.method3))
+                print('BLEU = %f' % corpus_bleu([trg],system, smoothing_function=smoothing.method1))
                 print('CHRF = %f' % corpus_chrf(trg,system))
 
     else:
@@ -964,11 +964,11 @@ def main():
                     if config['target_tokenizer'] == 'char':
                         system = [ word_tokenize(detokenize(s,'char')) for s in test_dec ]
                         reference = [ word_tokenize(detokenize(s,'char')) for s in test_trg ]
-                        print('BLEU = %f' % corpus_bleu(reference,system, smoothing_function=smoothing.method3))
+                        print('BLEU = %f' % corpus_bleu([reference],system, smoothing_function=smoothing.method1))
                         print('CHRF = %f' % corpus_chrf(reference,system))
                     else:
                         system = [ s.split() for s in test_dec ]
-                        print('BLEU = %f' % corpus_bleu(test_trg, system, smoothing_function=smoothing.method3))
+                        print('BLEU = %f' % corpus_bleu([test_trg], system, smoothing_function=smoothing.method1))
                         print('CHRF = %f' % corpus_chrf(test_trg, system))
 
                 # TODO: add options etc
