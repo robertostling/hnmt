@@ -8,6 +8,9 @@ import random
 from pprint import pprint
 
 from nltk import word_tokenize, wordpunct_tokenize
+from nltk.translate.bleu_score import sentence_bleu, corpus_bleu
+from nltk.translate.chrf_score import corpus_chrf
+
 import numpy as np
 import theano
 from theano import tensor as T
@@ -339,6 +342,12 @@ def read_sents(filename, tokenizer, lower):
     with open(filename, 'r', encoding='utf-8') as f:
         return list(map(process, f))
 
+def tokenize(sent, tokenizer, lower):
+        if lower: sent = sent.lower()
+        if tokenizer == 'char': return sent.strip()
+        elif tokenizer == 'space': return sent.split()
+        return word_tokenize(sent)
+    
 def detokenize(sent, tokenizer):
     return ('' if tokenizer == 'char' else ' ').join(sent)
 
@@ -370,9 +379,21 @@ def main():
     parser.add_argument('--translate', type=str,
             metavar='FILE',
             help='name of file to translate')
+    parser.add_argument('--nbest-list', type=int, default=argparse.SUPPRESS,
+            metavar='N',
+            help='print n-best list in translation model')
+    parser.add_argument('--reference', type=str,
+            metavar='FILE',
+            help='name of the reference translations file')
     parser.add_argument('--output', type=str,
             metavar='FILE',
             help='name of file to write translated text to')
+    parser.add_argument('--testset-source', type=str,
+            metavar='FILE',
+            help='name of test-set file (source language)')
+    parser.add_argument('--testset-target', type=str,
+            metavar='FILE',
+            help='name of test-set file (target language)')
     parser.add_argument('--beam-size', type=int, default=argparse.SUPPRESS,
             metavar='N',
             help='beam size during translation')
@@ -724,17 +745,32 @@ def main():
 
     # By this point a model has been created or loaded, so we can define a
     # convenience function to perform translation.
-    def translate(sents):
+    def translate(sents, nbest=0):
         for i in range(0, len(sents), config['batch_size']):
             x = config['src_encoder'].pad_sequences(
                     sents[i:i+config['batch_size']])
             pred, pred_mask, scores = model.search(
                     *(x + (config['max_target_length'],)),
                     beam_size=config['beam_size'], others=models[1:])
-            decoded = config['trg_encoder'].decode_padded(
+            # make n-best list (including score and sentence number)
+            # TODO: add even attention scores here?
+            if nbest>0:
+                if nbest > config['beam_size']: nbest = config['beam_size']
+                dec = []
+                for j in range(1,nbest+1):
+                    dec.append(config['trg_encoder'].decode_padded(pred[-j], pred_mask[-j]))
+                for k in range(0,len(dec[-1])):
+                    trans = []
+                    for j in range(0,nbest):
+                        trans.append(str(i+k) + " ||| " +
+                                     detokenize(dec[j][k],config['target_tokenizer']) +
+                                     " ||| " + str(scores[j][k]))
+                    yield '\n'.join(trans)
+            else:        
+                decoded = config['trg_encoder'].decode_padded(
                     pred[-1], pred_mask[-1])
-            for sent in decoded:
-                yield detokenize(sent, config['target_tokenizer'])
+                for sent in decoded:
+                    yield detokenize(sent, config['target_tokenizer'])
 
     # Create padded 3D tensors for supervising attention, given word
     # alignments.
@@ -772,15 +808,55 @@ def main():
                 args.translate,
                 config['source_tokenizer'],
                 config['source_lowercase'] == 'yes')
-        for i,sent in enumerate(translate(sents)):
+        if args.reference: hypotheses = []
+        if args.nbest_list: nbest = args.nbest_list
+        else: nbest = 0
+        for i,sent in enumerate(translate(sents,nbest)):
             print('.', file=sys.stderr, flush=True, end='')
             print(sent, file=outf, flush=True)
+            if args.reference: hypotheses.append(sent)
         print(' done!', file=sys.stderr, flush=True)
         if args.output:
             outf.close()
+
+        # compute BLEU if reference file is given
+        if args.reference:
+            trg = read_sent(args.reference,
+                            config['target_tokenizer'],
+                            config['target_lowercase'] == 'yes')
+            if config['target_tokenizer'] == 'char':
+                system = [ word_tokenize(detokenize(s,'char')) for s in hypotheses ]
+                reference = [ word_tokenize(detokenize(s,'char')) for s in trg ]
+                print('BLEU = %f' % corpus_bleu(reference,system))
+                print('CHRF = %f' % corpus_chrf(reference,system))
+            else:
+                system = [ s.split() for s in hypotheses ]
+                print('BLEU = %f' % corpus_bleu(trg,system))
+                print('CHRF = %f' % corpus_chrf(trg,system))
+
     else:
-        test_src = src_sents[:config['batch_size']]
-        test_trg = trg_sents[:config['batch_size']]
+        # dedicated test set or just one batch from training data
+        # TODO: does this also work if alignment_loss is used?
+        # TODO: add warnings if only source or target is missing or alignloss is used
+        if args.testset_source and args.testset_target and not args.alignment_loss:
+            print('Load test set ...', file=sys.stderr, flush=True)
+            test_src = read_sents(
+                args.testset_source, config['source_tokenizer'],
+                config['source_lowercase'] == 'yes')
+            test_trg = read_sents(
+                args.testset_target, config['target_tokenizer'],
+                config['target_lowercase'] == 'yes')
+            train_src = src_sents
+            train_trg = trg_sents
+            train_links_maps = links_maps
+        else:
+            print('Make test set ...', file=sys.stderr, flush=True)
+            test_src = src_sents[:config['batch_size']]
+            test_trg = trg_sents[:config['batch_size']]
+            train_src = src_sents[config['batch_size']:]
+            train_trg = trg_sents[config['batch_size']:]
+            train_links_maps = links_maps[config['batch_size']:]
+
         test_x = config['src_encoder'].pad_sequences(test_src)
         test_y = config['trg_encoder'].pad_sequences(test_trg)
         test_inputs, test_inputs_mask, test_chars, test_chars_mask = test_x
@@ -795,10 +871,6 @@ def main():
                     test_outputs.shape + (test_inputs.shape[0],),
                     dtype=theano.config.floatX)
         test_y = test_y + (test_attention,)
-
-        train_src = src_sents[config['batch_size']:]
-        train_trg = trg_sents[config['batch_size']:]
-        train_links_maps = links_maps[config['batch_size']:]
 
         train_pairs = list(zip(train_src, train_trg, train_links_maps))
 
@@ -876,7 +948,7 @@ def main():
 
                 if batch_nr % config['translate_every'] == 0:
                     t0 = time()
-                    test_dec = translate(test_src)
+                    test_dec = list(translate(test_src))
                     for src, trg, trg_dec in zip(test_src, test_trg, test_dec):
                         print('   SOURCE / TARGET / OUTPUT')
                         print(detokenize(src, config['source_tokenizer']))
@@ -885,6 +957,16 @@ def main():
                         print('-'*72)
                     print('Translation finished: %.2f s' % (time()-t0),
                           flush=True)
+                    # compute BLEU on test set (word-tokenize if necessary)
+                    if config['target_tokenizer'] == 'char':
+                        system = [ word_tokenize(detokenize(s,'char')) for s in test_dec ]
+                        reference = [ word_tokenize(detokenize(s,'char')) for s in test_trg ]
+                        print('BLEU = %f' % corpus_bleu(reference,system))
+                        print('CHRF = %f' % corpus_chrf(reference,system))
+                    else:
+                        system = [ s.split() for s in test_dec ]
+                        print('BLEU = %f' % corpus_bleu(test_trg, system))
+                        print('CHRF = %f' % corpus_chrf(test_trg, system))
 
                 # TODO: add options etc
                 print('lambda_a = %g' % model.lambda_a.get_value())
