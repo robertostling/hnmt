@@ -3,13 +3,23 @@
 See README.md for further documentation.
 """
 
-import sys
+import os, sys, inspect
 import random
 from pprint import pprint
 
+# add the path to hnmt to the system path to import BLEU etc
+cmd_folder = os.path.realpath(os.path.dirname(inspect.getfile(inspect.currentframe())))
+if cmd_folder not in sys.path:
+    sys.path.insert(0, cmd_folder)
+
+from hnmt.bleu import BLEU
+from hnmt.chrF import chrF
+from hnmt.bpe import BPE
+
+
 from nltk import word_tokenize, wordpunct_tokenize
-from nltk.translate.bleu_score import SmoothingFunction, corpus_bleu
-from nltk.translate.chrf_score import corpus_chrf
+#from nltk.translate.bleu_score import SmoothingFunction, corpus_bleu
+#from nltk.translate.chrf_score import corpus_chrf
 
 import numpy as np
 import theano
@@ -333,22 +343,21 @@ class NMT(Model):
                      for other in others],
                     axis=0))
 
+# TODO: make it possible to apply BPE here
+
 def read_sents(filename, tokenizer, lower):
     def process(line):
         if lower: line = line.lower()
         if tokenizer == 'char': return line.strip()
-        elif tokenizer == 'space': return line.split()
-        return word_tokenize(line)
+        elif tokenizer == 'word' : return word_tokenize(line)
+        return line.split()
     with open(filename, 'r', encoding='utf-8') as f:
         return list(map(process, f))
-
-def tokenize(sent, tokenizer, lower):
-        if lower: sent = sent.lower()
-        if tokenizer == 'char': return sent.strip()
-        elif tokenizer == 'space': return sent.split()
-        return word_tokenize(sent)
     
 def detokenize(sent, tokenizer):
+    if tokenizer == 'bpe':
+        string = ''.join(sent)
+        return string.replace("@@ ", "")
     return ('' if tokenizer == 'char' else ' ').join(sent)
 
 
@@ -483,6 +492,13 @@ def main():
     parser.add_argument('--training-time', type=float, default=24.0,
             metavar='HOURS',
             help='training time')
+    parser.add_argument('--source-bpe-codes', type=str,
+            metavar='FILE',
+            help='name of source language BPE codes file (and apply them)')
+    parser.add_argument('--target-bpe-codes', type=str,
+            metavar='FILE',
+            help='name of target language BPE codes file (and apply them)')
+
 
     args = parser.parse_args()
     args_vars = vars(args)
@@ -502,6 +518,20 @@ def main():
             'target': None,
             'beam_size': 8 }
 
+    # read and use byte-pair encodings
+    # TODO: the option doesn't work yet (change read_sents)
+    # TODO: should we store BPE codes in the model file?
+
+    srcbpe = False
+    trgbpe = False
+
+    if args.source_bpe_codes:
+        srcbpe_codes = BPE(args.source_bpe_codes)
+        srcbpe = True
+
+    if args.target_bpe_codes:
+        trgbpe_codes = BPE(args.source_bpe_codes)
+        trgbpe = True
 
     if args.translate:
         models = []
@@ -825,16 +855,29 @@ def main():
             trg = read_sents(args.reference,
                              config['target_tokenizer'],
                              config['target_lowercase'] == 'yes')
-            smoothing = SmoothingFunction()
+
+            # smoothing = SmoothingFunction()
+            # if config['target_tokenizer'] == 'char':
+            #     system = [ word_tokenize(detokenize(s,'char')) for s in hypotheses ]
+            #     reference = [ word_tokenize(detokenize(s,'char')) for s in trg ]
+            #     print('BLEU = %f' % corpus_bleu([reference],system, smoothing_function=smoothing.method4))
+            #     print('CHRF = %f' % corpus_chrf(reference,system))
+            # else:
+            #     system = [ s.split() for s in hypotheses ]
+            #     print('BLEU = %f' % corpus_bleu([trg],system, smoothing_function=smoothing.method4))
+            #     print('CHRF = %f' % corpus_chrf(trg,system))
+
             if config['target_tokenizer'] == 'char':
-                system = [ word_tokenize(detokenize(s,'char')) for s in hypotheses ]
-                reference = [ word_tokenize(detokenize(s,'char')) for s in trg ]
-                print('BLEU = %f' % corpus_bleu([reference],system, smoothing_function=smoothing.method1))
-                print('CHRF = %f' % corpus_chrf(reference,system))
+                system = [ detokenize(word_tokenize(detokenize(s,'char')),'space') for s in hypotheses ]
+                reference = [ detokenize(word_tokenize(detokenize(s,'char')),'space') for s in trg ]
+                print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(system,[reference]))
+                print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,system))
             else:
-                system = [ s.split() for s in hypotheses ]
-                print('BLEU = %f' % corpus_bleu([trg],system, smoothing_function=smoothing.method1))
-                print('CHRF = %f' % corpus_chrf(trg,system))
+                system = [ detokenize(s,config['target_tokenizer']) for s in hypotheses ]
+                reference = [ detokenize(s,config['target_tokenizer']) for s in trg ]
+                print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(system,[reference]))
+                print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,system))
+
 
     else:
         # dedicated test set or just one batch from training data
@@ -959,17 +1002,30 @@ def main():
                         print('-'*72)
                     print('Translation finished: %.2f s' % (time()-t0),
                           flush=True)
-                    # compute BLEU on test set (word-tokenize if necessary)
-                    smoothing = SmoothingFunction()
+
+                    # # compute BLEU on test set (word-tokenize if necessary)
+                    # smoothing = SmoothingFunction()
+                    # if config['target_tokenizer'] == 'char':
+                    #     system = [ word_tokenize(detokenize(s,'char')) for s in test_dec ]
+                    #     reference = [ word_tokenize(detokenize(s,'char')) for s in test_trg ]
+                    #     print('BLEU = %f' % corpus_bleu([reference],system, smoothing_function=smoothing.method4))
+                    #     print('CHRF = %f' % corpus_chrf(reference,system))
+                    # else:
+                    #     system = [ s.split() for s in test_dec ]
+                    #     print('BLEU = %f' % corpus_bleu([test_trg], system, smoothing_function=smoothing.method4))
+                    #     print('CHRF = %f' % corpus_chrf(test_trg, system))
+
                     if config['target_tokenizer'] == 'char':
-                        system = [ word_tokenize(detokenize(s,'char')) for s in test_dec ]
-                        reference = [ word_tokenize(detokenize(s,'char')) for s in test_trg ]
-                        print('BLEU = %f' % corpus_bleu([reference],system, smoothing_function=smoothing.method1))
-                        print('CHRF = %f' % corpus_chrf(reference,system))
+                        system = [ detokenize(word_tokenize(detokenize(s,'char')),'space') for s in test_dec ]
+                        reference = [ detokenize(word_tokenize(detokenize(s,'char')),'space') for s in test_trg ]
+                        print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(system,[reference]))
+                        print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,system))
                     else:
-                        system = [ s.split() for s in test_dec ]
-                        print('BLEU = %f' % corpus_bleu([test_trg], system, smoothing_function=smoothing.method1))
-                        print('CHRF = %f' % corpus_chrf(test_trg, system))
+                        system = [ detokenize(s,'space') for s in test_dec ]
+                        reference = [ detokenize(s,'space') for s in test_trg ]
+                        print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(system,[reference]))
+                        print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,system))
+                        
 
                 # TODO: add options etc
                 print('lambda_a = %g' % model.lambda_a.get_value())
