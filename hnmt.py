@@ -424,10 +424,10 @@ def main():
             metavar='FILE',
             help='name of target language file')
     parser.add_argument('--source-tokenizer', type=str,
-            choices=('word', 'space', 'char'), default=argparse.SUPPRESS,
+            choices=('word', 'space', 'char', 'bpe'), default=argparse.SUPPRESS,
             help='type of preprocessing for source text')
     parser.add_argument('--target-tokenizer', type=str,
-            choices=('word', 'space', 'char'), default=argparse.SUPPRESS,
+            choices=('word', 'space', 'char', 'bpe'), default=argparse.SUPPRESS,
             help='type of preprocessing for target text')
     parser.add_argument('--max-source-length', type=int,
             metavar='N',
