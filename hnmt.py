@@ -356,7 +356,7 @@ def read_sents(filename, tokenizer, lower):
     
 def detokenize(sent, tokenizer):
     if tokenizer == 'bpe':
-        string = ''.join(sent)
+        string = ' '.join(sent)
         return string.replace("@@ ", "")
     return ('' if tokenizer == 'char' else ' ').join(sent)
 
