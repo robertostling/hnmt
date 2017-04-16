@@ -1021,8 +1021,8 @@ def main():
                         print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(system,[reference]))
                         print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,system))
                     else:
-                        system = [ detokenize(s,'space') for s in test_dec ]
-                        reference = [ detokenize(s,'space') for s in test_trg ]
+                        system = [ detokenize(s,config['target_tokenizer']) for s in test_dec ]
+                        reference = [ detokenize(s,config['target_tokenizer']) for s in test_trg ]
                         print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(system,[reference]))
                         print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,system))
                         
