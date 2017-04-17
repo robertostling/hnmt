@@ -868,15 +868,14 @@ def main():
             #     print('CHRF = %f' % corpus_chrf(trg,system))
 
             if config['target_tokenizer'] == 'char':
-                system = [ detokenize(word_tokenize(detokenize(s,'char')),'space') for s in hypotheses ]
+                system = [ detokenize(wordpunct_tokenize(s),'space') for s in hypotheses ]
                 reference = [ detokenize(word_tokenize(detokenize(s,'char')),'space') for s in trg ]
                 print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(system,[reference]))
                 print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,system))
             else:
-                system = [ detokenize(s,config['target_tokenizer']) for s in hypotheses ]
                 reference = [ detokenize(s,config['target_tokenizer']) for s in trg ]
-                print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(system,[reference]))
-                print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,system))
+                print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(hypotheses,[reference]))
+                print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,hypotheses))
 
 
     else:
@@ -1016,15 +1015,14 @@ def main():
                     #     print('CHRF = %f' % corpus_chrf(test_trg, system))
 
                     if config['target_tokenizer'] == 'char':
-                        system = [ detokenize(word_tokenize(detokenize(s,'char')),'space') for s in test_dec ]
-                        reference = [ detokenize(word_tokenize(detokenize(s,'char')),'space') for s in test_trg ]
+                        system = [ detokenize(wordpunct_tokenize(s),'space') for s in test_dec ]
+                        reference = [ detokenize(wordpunct_tokenize(detokenize(s,'char')),'space') for s in test_trg ]
                         print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(system,[reference]))
                         print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,system))
                     else:
-                        system = [ detokenize(s,config['target_tokenizer']) for s in test_dec ]
                         reference = [ detokenize(s,config['target_tokenizer']) for s in test_trg ]
-                        print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(system,[reference]))
-                        print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,system))
+                        print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(test_dec,[reference]))
+                        print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,test_dec))
                         
 
                 # TODO: add options etc
