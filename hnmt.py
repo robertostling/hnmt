@@ -884,12 +884,16 @@ def main():
         # TODO: add warnings if only source or target is missing or alignloss is used
         if args.testset_source and args.testset_target and not args.alignment_loss:
             print('Load test set ...', file=sys.stderr, flush=True)
-            test_src = read_sents(
+            test_src= read_sents(
                 args.testset_source, config['source_tokenizer'],
                 config['source_lowercase'] == 'yes')
             test_trg = read_sents(
                 args.testset_target, config['target_tokenizer'],
                 config['target_lowercase'] == 'yes')
+            if len(test_src) > config['batch_size']:
+                print('reduce test set to batch size', file=sys.stderr, flush=True)
+                test_src = test_src[:config['batch_size']]
+                test_trg = test_trg[:config['batch_size']]
             train_src = src_sents
             train_trg = trg_sents
             train_links_maps = links_maps
