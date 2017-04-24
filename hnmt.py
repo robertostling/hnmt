@@ -360,7 +360,7 @@ def main():
             metavar='FILE',
             help='name of the model file to save to')
     parser.add_argument('--ensemble-average', action='store_true',
-            help='ensemble models by averaging parameters')
+            help='ensemble models by averaging parameters (DEPRECATED)')
     parser.add_argument('--translate', type=str,
             metavar='FILE',
             help='name of file to translate')
@@ -477,28 +477,51 @@ def main():
     if args.translate:
         models = []
         configs = []
-        for filename in args.load_model.split(','):
-            print('HNMT: loading translation model from %s...' % filename,
+        if ':' in args.load_model:
+            print('HNMT: will average model savepoints',
                   file=sys.stderr, flush=True)
-            with open(filename, 'rb') as f:
-                configs.append(pickle.load(f))
-                models.append(NMT('nmt', configs[-1]))
-                models[-1].load(f)
+        if ',' in args.load_model:
+            print('HNMT: will ensemble separate models',
+                  file=sys.stderr, flush=True)
+        # We may want to ensemble several independent models (modelA,
+        # modelB, ...) but also average the parameters from some savepoints
+        # within each model (modelA.1, modelA.2, ...).
+        # This would be encoded as:
+        #   --load-model modelA.1:modelA.2,modelB.1:modelB.2
+        for group_filenames in args.load_model.split(','):
+            group_models = []
+            group_configs = []
+            for filename in group_filenames.split(':'):
+                print('HNMT: loading ensemble part %s...' % filename,
+                      file=sys.stderr, flush=True)
+                with open(filename, 'rb') as f:
+                    group_configs.append(pickle.load(f))
+                    group_models.append(NMT('nmt', group_configs[-1]))
+                    group_models[-1].load(f)
+            models.append(group_models[0])
+            configs.append(group_configs[0])
+            if len(group_models) > 1:
+                models[-1].average_parameters(group_models[1:])
+
+        #for filename in args.load_model.split(','):
+        #    print('HNMT: loading translation model from %s...' % filename,
+        #          file=sys.stderr, flush=True)
+        #    with open(filename, 'rb') as f:
+        #        configs.append(pickle.load(f))
+        #        models.append(NMT('nmt', configs[-1]))
+        #        models[-1].load(f)
         model = models[0]
         config = configs[0]
         for c in configs[1:]:
             assert c['trg_encoder'].vocab == config['trg_encoder'].vocab
-        if args.ensemble_average:
-            if len(models) == 1:
-                print('HNMT: --ensemble-average used with a single model!',
-                      file=sys.stderr, flush=True)
-            else:
-                model.average_parameters(models[1:])
-                models = models[:1]
-                configs = configs[1:]
-        # This could work only in rare circumstances:
-        #for m in models[1:]:
-        #    m.unify_embeddings(model)
+        #if args.ensemble_average:
+        #    if len(models) == 1:
+        #        print('HNMT: --ensemble-average used with a single model!',
+        #              file=sys.stderr, flush=True)
+        #    else:
+        #        model.average_parameters(models[1:])
+        #        models = models[:1]
+        #        configs = configs[1:]
 
         for option in overridable_options:
             if option in args_vars: config[option] = args_vars[option]
@@ -548,6 +571,10 @@ def main():
         n_sents = len(keep_sents)
         random.seed(123)
         random.shuffle(keep_sents)
+
+        print('Keeping %d of %d sentences' % (n_sents, len(src_sents)),
+              flush=True)
+
         src_sents = [src_sents[i] for i in keep_sents]
         trg_sents = [trg_sents[i] for i in keep_sents]
 
@@ -755,6 +782,7 @@ def main():
 
         start_time = time()
         end_time = start_time + 3600*args.training_time
+        best_test_xent = float('inf')
 
         while time() < end_time:
             # Sort by target sequence length when grouping training instances
@@ -768,6 +796,13 @@ def main():
                             *(test_x + test_y))
                     scale = (test_outputs.shape[1] /
                                 (test_outputs_mask.sum()*np.log(2)))
+                    if test_xent < best_test_xent:
+                        best_test_xent = test_xent
+                        with open(args.save_model, 'wb') as f:
+                            pickle.dump(config, f)
+                            model.save(f)
+                            optimizer.save(f)
+
                     if logf:
                         print('%d\t%.3f\t%.3f\t%.3f\t%d' % (
                                 int(t0-start_time), test_xent*scale,
@@ -810,7 +845,7 @@ def main():
 
                 batch_nr += 1
 
-                if batch_nr % config['save_every'] == 0:
+                if config['save_every'] > 0 and batch_nr % config['save_every'] == 0:
                     filename = '%s.%d' % (args.save_model, optimizer.n_updates)
                     print('Writing model to %s...' % filename, flush=True)
                     with open(filename, 'wb') as f:
@@ -840,9 +875,9 @@ def main():
             epoch += 1
 
         if logf: logf.close()
-        print('Training finished, writing to %s...' % args.save_model,
-              flush=True)
-        with open(args.save_model, 'wb') as f:
+        print('Training finished, saving final model', flush=True)
+
+        with open(args.save_model + '.final', 'wb') as f:
             pickle.dump(config, f)
             model.save(f)
             optimizer.save(f)

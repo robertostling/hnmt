@@ -36,7 +36,7 @@ def main():
     assert xml_trg_ref.endswith('.sgm') and xml_trg_ref[-11:-6] == '-ref.'
     trg = xml_trg_ref[-6:-4]
 
-    detokenize = True
+    detokenize = False
     source_tokenizer = 'word'
 
     script_dir = 'moses-scripts'
