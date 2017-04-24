@@ -3,11 +3,24 @@
 See README.md for further documentation.
 """
 
-import sys
+import os, sys, inspect
 import random
 from pprint import pprint
 
+# add the path to hnmt to the system path to import BLEU etc
+cmd_folder = os.path.realpath(os.path.dirname(inspect.getfile(inspect.currentframe())))
+if cmd_folder not in sys.path:
+    sys.path.insert(0, cmd_folder)
+
+from hnmt.bleu import BLEU
+from hnmt.chrF import chrF
+from hnmt.bpe import BPE
+
+
 from nltk import word_tokenize, wordpunct_tokenize
+#from nltk.translate.bleu_score import SmoothingFunction, corpus_bleu
+#from nltk.translate.chrf_score import corpus_chrf
+
 import numpy as np
 import theano
 from theano import tensor as T
@@ -330,16 +343,21 @@ class NMT(Model):
                      for other in others],
                     axis=0))
 
+# TODO: make it possible to apply BPE here
+
 def read_sents(filename, tokenizer, lower):
     def process(line):
         if lower: line = line.lower()
         if tokenizer == 'char': return line.strip()
-        elif tokenizer == 'space': return line.split()
-        return word_tokenize(line)
+        elif tokenizer == 'word' : return word_tokenize(line)
+        return line.split()
     with open(filename, 'r', encoding='utf-8') as f:
         return list(map(process, f))
-
+    
 def detokenize(sent, tokenizer):
+    if tokenizer == 'bpe':
+        string = ' '.join(sent)
+        return string.replace("@@ ", "")
     return ('' if tokenizer == 'char' else ' ').join(sent)
 
 
@@ -356,17 +374,36 @@ def main():
     parser.add_argument('--load-model', type=str,
             metavar='FILE(s)',
             help='name of the model file(s) to load from, comma-separated list')
+    parser.add_argument('--load-submodel', type=str,
+            metavar='FILE(s)',
+            help='name of the submodel file(s) to load from, comma-separated list of modelname=file')
     parser.add_argument('--save-model', type=str,
             metavar='FILE',
             help='name of the model file to save to')
+    parser.add_argument('--split-model', type=str,
+            metavar='FILE',
+            help='split an existing model into separate files for each submodule')
     parser.add_argument('--ensemble-average', action='store_true',
             help='ensemble models by averaging parameters (DEPRECATED)')
     parser.add_argument('--translate', type=str,
             metavar='FILE',
             help='name of file to translate')
+    parser.add_argument('--nbest-list', type=int,
+            default=0,
+            metavar='N',
+            help='print n-best list in translation model')
+    parser.add_argument('--reference', type=str,
+            metavar='FILE',
+            help='name of the reference translations file')
     parser.add_argument('--output', type=str,
             metavar='FILE',
             help='name of file to write translated text to')
+    parser.add_argument('--testset-source', type=str,
+            metavar='FILE',
+            help='name of test-set file (source language)')
+    parser.add_argument('--testset-target', type=str,
+            metavar='FILE',
+            help='name of test-set file (target language)')
     parser.add_argument('--beam-size', type=int, default=argparse.SUPPRESS,
             metavar='N',
             help='beam size during translation')
@@ -387,10 +424,10 @@ def main():
             metavar='FILE',
             help='name of target language file')
     parser.add_argument('--source-tokenizer', type=str,
-            choices=('word', 'space', 'char'), default=argparse.SUPPRESS,
+            choices=('word', 'space', 'char', 'bpe'), default=argparse.SUPPRESS,
             help='type of preprocessing for source text')
     parser.add_argument('--target-tokenizer', type=str,
-            choices=('word', 'space', 'char'), default=argparse.SUPPRESS,
+            choices=('word', 'space', 'char', 'bpe'), default=argparse.SUPPRESS,
             help='type of preprocessing for target text')
     parser.add_argument('--max-source-length', type=int,
             metavar='N',
@@ -455,6 +492,13 @@ def main():
     parser.add_argument('--training-time', type=float, default=24.0,
             metavar='HOURS',
             help='training time')
+    parser.add_argument('--source-bpe-codes', type=str,
+            metavar='FILE',
+            help='name of source language BPE codes file (and apply them)')
+    parser.add_argument('--target-bpe-codes', type=str,
+            metavar='FILE',
+            help='name of target language BPE codes file (and apply them)')
+
 
     args = parser.parse_args()
     args_vars = vars(args)
@@ -473,6 +517,21 @@ def main():
             'source': None,
             'target': None,
             'beam_size': 8 }
+
+    # read and use byte-pair encodings
+    # TODO: the option doesn't work yet (change read_sents)
+    # TODO: should we store BPE codes in the model file?
+
+    srcbpe = False
+    trgbpe = False
+
+    if args.source_bpe_codes:
+        srcbpe_codes = BPE(args.source_bpe_codes)
+        srcbpe = True
+
+    if args.target_bpe_codes:
+        trgbpe_codes = BPE(args.source_bpe_codes)
+        trgbpe = True
 
     if args.translate:
         models = []
@@ -525,6 +584,26 @@ def main():
 
         for option in overridable_options:
             if option in args_vars: config[option] = args_vars[option]
+
+    # split a modelfile into submodel files
+    # (NOTE: this also saves the config for the whole model)
+    elif args.split_model:
+        if args.load_model:
+            with open(args.load_model, 'rb') as f:
+                config = pickle.load(f)
+                model = NMT('nmt', config)
+                model.load(f)
+            filebase = args.split_model
+            for submodel in model.submodels.values():
+                filename = filebase + '.' + submodel.name
+                print('save submodel %s' % (filename),
+                      file=sys.stderr, flush=True)
+                with open(filename, 'wb') as f:
+                    pickle.dump(config, f)
+                    submodel.save(f)
+        else:
+            quit('Use --load-model to specify model to be split!');
+
     else:
         print('HNMT: starting training...', file=sys.stderr, flush=True)
         if args.load_model:
@@ -532,15 +611,32 @@ def main():
                 config = pickle.load(f)
                 model = NMT('nmt', config)
                 model.load(f)
+
+                ## overwrite some submodels if specified on command-line
+                ## TODO: do I need this here or is enough to overwrite 
+                ## model parameters later after creating the optimizer?
+                #if args.load_submodel:
+                #    for filespec in args.load_submodel.split(','):
+                #        modelname,filename = filespec.split('=')
+                #        with open(filename, 'rb') as f:
+                #            print('HNMT: loading submodel %s from %s ...' % (modelname,filename),
+                #                  file=sys.stderr, flush=True)
+                #            ## TODO: should check that the submodel config is compatible with model config
+                #            submodel_config = pickle.load(f)
+                #            getattr(model,modelname).load(f)
+
                 models = [model]
                 optimizer = model.create_optimizer()
                 if args.learning_rate:
                     optimizer.learning_rate = args.learning_rate
-                optimizer.load(f)
+                ## load optimizer states unless there are submodels to be loaded later
+                if not args.load_submodel:
+                    optimizer.load(f)
             print('Continuing training from update %d...'%optimizer.n_updates,
                   flush=True)
             for option in overridable_options:
                 if option in args_vars: config[option] = args_vars[option]
+
         else:
             assert args.save_model
             assert not os.path.exists(args.save_model)
@@ -693,19 +789,46 @@ def main():
             if args.learning_rate:
                 optimizer.learning_rate = args.learning_rate
 
+        ## load submodel parameters (overwrite existing ones)
+        if args.load_submodel:
+            for filespec in args.load_submodel.split(','):
+                modelname,filename = filespec.split('=')
+                with open(filename, 'rb') as f:
+                    print('HNMT: loading submodel %s from %s ...' % (modelname,filename),
+                          file=sys.stderr, flush=True)
+                    ## TODO: should check that the submodel config is compatible with model config
+                    submodel_config = pickle.load(f)
+                    getattr(model,modelname).load(f)
+
+
     # By this point a model has been created or loaded, so we can define a
     # convenience function to perform translation.
-    def translate(sents):
+    def translate(sents, nbest=0):
         for i in range(0, len(sents), config['batch_size']):
             x = config['src_encoder'].pad_sequences(
                     sents[i:i+config['batch_size']])
             pred, pred_mask, scores = model.search(
                     *(x + (config['max_target_length'],)),
                     beam_size=config['beam_size'], others=models[1:])
-            decoded = config['trg_encoder'].decode_padded(
+            # make n-best list (including score and sentence number)
+            # TODO: add even attention scores here?
+            if nbest>0:
+                if nbest > config['beam_size']: nbest = config['beam_size']
+                dec = []
+                for j in range(1,nbest+1):
+                    dec.append(config['trg_encoder'].decode_padded(pred[-j], pred_mask[-j]))
+                for k in range(0,len(dec[-1])):
+                    trans = []
+                    for j in range(0,nbest):
+                        trans.append(str(i+k) + " ||| " +
+                                     detokenize(dec[j][k],config['target_tokenizer']) +
+                                     " ||| " + str(scores[j][k]))
+                    yield '\n'.join(trans)
+            else:        
+                decoded = config['trg_encoder'].decode_padded(
                     pred[-1], pred_mask[-1])
-            for sent in decoded:
-                yield detokenize(sent, config['target_tokenizer'])
+                for sent in decoded:
+                    yield detokenize(sent, config['target_tokenizer'])
 
     # Create padded 3D tensors for supervising attention, given word
     # alignments.
@@ -743,15 +866,72 @@ def main():
                 args.translate,
                 config['source_tokenizer'],
                 config['source_lowercase'] == 'yes')
-        for i,sent in enumerate(translate(sents)):
+        if args.reference: hypotheses = []
+        if args.nbest_list: nbest = args.nbest_list
+        else: nbest = 0
+        for i,sent in enumerate(translate(sents,nbest)):
             print('.', file=sys.stderr, flush=True, end='')
             print(sent, file=outf, flush=True)
+            if args.reference: hypotheses.append(sent)
         print(' done!', file=sys.stderr, flush=True)
         if args.output:
             outf.close()
+
+        # compute BLEU if reference file is given
+        if args.reference:
+            trg = read_sents(args.reference,
+                             config['target_tokenizer'],
+                             config['target_lowercase'] == 'yes')
+
+            # smoothing = SmoothingFunction()
+            # if config['target_tokenizer'] == 'char':
+            #     system = [ word_tokenize(detokenize(s,'char')) for s in hypotheses ]
+            #     reference = [ word_tokenize(detokenize(s,'char')) for s in trg ]
+            #     print('BLEU = %f' % corpus_bleu([reference],system, smoothing_function=smoothing.method4))
+            #     print('CHRF = %f' % corpus_chrf(reference,system))
+            # else:
+            #     system = [ s.split() for s in hypotheses ]
+            #     print('BLEU = %f' % corpus_bleu([trg],system, smoothing_function=smoothing.method4))
+            #     print('CHRF = %f' % corpus_chrf(trg,system))
+
+            if config['target_tokenizer'] == 'char':
+                system = [ detokenize(wordpunct_tokenize(s),'space') for s in hypotheses ]
+                reference = [ detokenize(word_tokenize(detokenize(s,'char')),'space') for s in trg ]
+                print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(system,[reference]))
+                print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,system))
+            else:
+                reference = [ detokenize(s,config['target_tokenizer']) for s in trg ]
+                print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(hypotheses,[reference]))
+                print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,hypotheses))
+
+
     else:
-        test_src = src_sents[:config['batch_size']]
-        test_trg = trg_sents[:config['batch_size']]
+        # dedicated test set or just one batch from training data
+        # TODO: does this also work if alignment_loss is used?
+        # TODO: add warnings if only source or target is missing or alignloss is used
+        if args.testset_source and args.testset_target and not args.alignment_loss:
+            print('Load test set ...', file=sys.stderr, flush=True)
+            test_src= read_sents(
+                args.testset_source, config['source_tokenizer'],
+                config['source_lowercase'] == 'yes')
+            test_trg = read_sents(
+                args.testset_target, config['target_tokenizer'],
+                config['target_lowercase'] == 'yes')
+            if len(test_src) > config['batch_size']:
+                print('reduce test set to batch size', file=sys.stderr, flush=True)
+                test_src = test_src[:config['batch_size']]
+                test_trg = test_trg[:config['batch_size']]
+            train_src = src_sents
+            train_trg = trg_sents
+            train_links_maps = links_maps
+        else:
+            print('Make test set ...', file=sys.stderr, flush=True)
+            test_src = src_sents[:config['batch_size']]
+            test_trg = trg_sents[:config['batch_size']]
+            train_src = src_sents[config['batch_size']:]
+            train_trg = trg_sents[config['batch_size']:]
+            train_links_maps = links_maps[config['batch_size']:]
+
         test_x = config['src_encoder'].pad_sequences(test_src)
         test_y = config['trg_encoder'].pad_sequences(test_trg)
         test_inputs, test_inputs_mask, test_chars, test_chars_mask = test_x
@@ -766,10 +946,6 @@ def main():
                     test_outputs.shape + (test_inputs.shape[0],),
                     dtype=theano.config.floatX)
         test_y = test_y + (test_attention,)
-
-        train_src = src_sents[config['batch_size']:]
-        train_trg = trg_sents[config['batch_size']:]
-        train_links_maps = links_maps[config['batch_size']:]
 
         train_pairs = list(zip(train_src, train_trg, train_links_maps))
 
@@ -855,7 +1031,7 @@ def main():
 
                 if batch_nr % config['translate_every'] == 0:
                     t0 = time()
-                    test_dec = translate(test_src)
+                    test_dec = list(translate(test_src))
                     for src, trg, trg_dec in zip(test_src, test_trg, test_dec):
                         print('   SOURCE / TARGET / OUTPUT')
                         print(detokenize(src, config['source_tokenizer']))
@@ -864,6 +1040,29 @@ def main():
                         print('-'*72)
                     print('Translation finished: %.2f s' % (time()-t0),
                           flush=True)
+
+                    # # compute BLEU on test set (word-tokenize if necessary)
+                    # smoothing = SmoothingFunction()
+                    # if config['target_tokenizer'] == 'char':
+                    #     system = [ word_tokenize(detokenize(s,'char')) for s in test_dec ]
+                    #     reference = [ word_tokenize(detokenize(s,'char')) for s in test_trg ]
+                    #     print('BLEU = %f' % corpus_bleu([reference],system, smoothing_function=smoothing.method4))
+                    #     print('CHRF = %f' % corpus_chrf(reference,system))
+                    # else:
+                    #     system = [ s.split() for s in test_dec ]
+                    #     print('BLEU = %f' % corpus_bleu([test_trg], system, smoothing_function=smoothing.method4))
+                    #     print('CHRF = %f' % corpus_chrf(test_trg, system))
+
+                    if config['target_tokenizer'] == 'char':
+                        system = [ detokenize(wordpunct_tokenize(s),'space') for s in test_dec ]
+                        reference = [ detokenize(wordpunct_tokenize(detokenize(s,'char')),'space') for s in test_trg ]
+                        print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(system,[reference]))
+                        print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,system))
+                    else:
+                        reference = [ detokenize(s,config['target_tokenizer']) for s in test_trg ]
+                        print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(test_dec,[reference]))
+                        print('chrF = %f (precision = %f, recall = %f)' % chrF(reference,test_dec))
+                        
 
                 # TODO: add options etc
                 print('lambda_a = %g' % model.lambda_a.get_value())

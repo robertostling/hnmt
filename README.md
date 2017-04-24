@@ -98,3 +98,13 @@ cross-entropy to the loss function). By default this contribution has an
 exponential decay (per batch), this can be specified with
 `--alignment-decay 0.9999` or such.
 
+## Segmentation
+
+Select the tokenizer among these options:
+
+* space: pre-segmented with spaces as separators
+* char: split into character sequences
+* word: use wordpunct from nltk
+* bpe: pre-segmented with BPE (remove '@@ ' from final output)
+
+TODO: support BPE as internal segmentation (apply_bpe to training data)
