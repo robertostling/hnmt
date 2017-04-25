@@ -11,9 +11,12 @@ procedure should be simple enough for people to try out.
 * biLSTM encoder which can be either character-based or hybrid word/character
   ([Luong & Manning 2016](http://arxiv.org/abs/1604.00788))
 * LSTM decoder which can be either character-based or word-based
+* Beam search with coverage penalty
+  based on [Wu et al. (2016)](https://arxiv.org/pdf/1609.08144.pdf)).
+* Partial support for byte pair encoding
+  ([Sennrich et al. (2015)](https://arxiv.org/abs/1508.07909))
 * Variational dropout ([Gal 2015](http://arxiv.org/abs/1512.05287))
   and Layer Normalization ([Ba et al. 2016](https://arxiv.org/abs/1607.06450))
-* Bayesian word alignment model for guiding attention mechanism (experimental)
 
 ## Requirements
 
@@ -22,9 +25,10 @@ procedure should be simple enough for people to try out.
 * [Theano](http://deeplearning.net/software/theano/) (use the development
   version)
 * [BNAS](https://github.com/robertostling/bnas)
-* [NLTK](http://www.nltk.org/) for tokenization
+* [NLTK](http://www.nltk.org/) for tokenization, but note that HNMT also
+  supports pre-tokenized data from external tokenizers
 * [efmaral](https://github.com/robertostling/efmaral) if you want to try the
-  experimental supervised attention feature (see below)
+  experimental supervised attention feature (not recommended, but see below)
 
 ## Quick start
 
@@ -86,7 +90,18 @@ training the model above for another 48 hours on the same data:
                     --training-time 48 \
                     --save-model en-sv-72h.model
 
-## Using efmaral for attention supervision
+## Segmentation
+
+Select the tokenizer among these options:
+
+* space: pre-segmented with spaces as separators
+* char: split into character sequences
+* word: use wordpunct from nltk
+* bpe: pre-segmented with BPE (remove '@@ ' from final output)
+
+TODO: support BPE as internal segmentation (apply_bpe to training data)
+
+## Using efmaral for attention supervision (not recommended)
 
 Install the Python bindings for
 [efmaral](https://github.com/robertostling/efmaral) (i.e. run
@@ -98,13 +113,4 @@ cross-entropy to the loss function). By default this contribution has an
 exponential decay (per batch), this can be specified with
 `--alignment-decay 0.9999` or such.
 
-## Segmentation
 
-Select the tokenizer among these options:
-
-* space: pre-segmented with spaces as separators
-* char: split into character sequences
-* word: use wordpunct from nltk
-* bpe: pre-segmented with BPE (remove '@@ ' from final output)
-
-TODO: support BPE as internal segmentation (apply_bpe to training data)
