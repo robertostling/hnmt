@@ -19,8 +19,11 @@ from hnmt.bleu import BLEU
 from hnmt.chrF import chrF
 from hnmt.bpe import BPE
 
-
-from nltk import word_tokenize, wordpunct_tokenize
+try:
+    from nltk import word_tokenize, wordpunct_tokenize
+except ImportError:
+    print('HNMT: WARNING: NLTK not installed, will not be able to use '
+          'internal tokenizer', file=sys.stderr, flush=True)
 #from nltk.translate.bleu_score import SmoothingFunction, corpus_bleu
 #from nltk.translate.chrf_score import corpus_chrf
 
@@ -252,6 +255,7 @@ class NMT(Model):
 
         self.encode_fun = function(self.x, self.encode(*self.x))
         self.xent_fun = function(self.x+self.y, self.xent(*(self.x+self.y)))
+        self.pred_fun = function(self.x+self.y[:-1], self(*(self.x+self.y[:-1])))
 
         # stats
         self.beam_ends = np.zeros((config['max_target_length'],))
@@ -665,6 +669,10 @@ def main():
     parser.add_argument('--target-bpe-codes', type=str,
             metavar='FILE',
             help='name of target language BPE codes file (and apply them)')
+    parser.add_argument('--score', type=str,
+            metavar='FILE',
+            help='score the test-target/test-source pair and write scores '
+                 'to this file')
 
     args = parser.parse_args()
     args_vars = vars(args)
@@ -812,8 +820,9 @@ def main():
                 ## load optimizer states unless there are submodels to be loaded later
                 if not args.load_submodel:
                     optimizer.load(f)
-            print('Continuing training from update %d...'%optimizer.n_updates,
-                  flush=True)
+            if not args.score:
+                print('Continuing training from update %d...'%optimizer.n_updates,
+                      flush=True)
             for option in overridable_options:
                 if option in args_vars: config[option] = args_vars[option]
 
@@ -837,6 +846,53 @@ def main():
         else:
             test_src_sents = []
             test_trg_sents = []
+
+        if args.score:
+            print('Load test set for scoring ...', file=sys.stderr, flush=True)
+            src_sents = test_src_sents
+            trg_sents = test_trg_sents
+            assert len(src_sents) == len(trg_sents)
+            with open(args.score, 'w') as outf:
+                for i in range(0, len(src_sents), config['batch_size']):
+                    src_batch = [
+                            config['src_encoder'].encode_sequence(sent)
+                            for sent in src_sents[i:i+config['batch_size']]]
+                    trg_batch = [
+                            config['trg_encoder'].encode_sequence(sent)
+                            for sent in trg_sents[i:i+config['batch_size']]]
+                    x = config['src_encoder'].pad_sequences(src_batch)
+                    y = config['trg_encoder'].pad_sequences(trg_batch)
+                    y = y + (np.ones(y[0].shape + (x[0].shape[0],),
+                                        dtype=theano.config.floatX),)
+                    test_inputs, test_inputs_mask, _, _ = x
+                    test_outputs, test_outputs_mask, test_attention = y
+                    pred_y, pred_attention = model.pred_fun(*(x + y[:-1]))
+                    idx1, idx2 = np.indices(test_outputs[1:].shape)
+                    p_y = pred_y[idx1, idx2, test_outputs[1:]] + \
+                            (1 - test_outputs_mask[1:])
+                    # Length of each sentence
+                    len_y = test_outputs_mask.sum(0) - 2
+                    # Log-probability per sentence
+                    log_p = (np.log(p_y) * test_outputs_mask[1:]).sum(0)
+                    # Length penalty of each sentence
+                    lp = np.power((5 + len_y) / 6, config['alpha'])
+                    # Coverage penalty
+                    attention_trg_sum = (
+                            test_outputs_mask[1:][...,None] *
+                            pred_attention).sum(0)
+                    cp = ((np.log((1 - test_inputs_mask.T) +
+                                  np.minimum(attention_trg_sum, 1.0))
+                            * test_inputs_mask.T).sum(1)
+                            * config['beta'])
+                    score = cp + (log_p / lp)
+                    #print(np.hstack([score[:,None], cp[:,None], lp[:,None],
+                    #                 log_p[:,None]]))
+                    for x in score:
+                        print(x, file=outf, flush=True)
+            print('Scores written to %s, exiting...' % args.score,
+                  file=sys.stderr, flush=True)
+            return
+
 
         print('reading sentences...', file=sys.stderr, flush=True)
         src_sents = read_sents(
@@ -1014,7 +1070,6 @@ def main():
                     ## TODO: should check that the submodel config is compatible with model config
                     submodel_config = pickle.load(f)
                     getattr(model,modelname).load(f)
-
 
     # By this point a model has been created or loaded, so we can define a
     # convenience function to perform translation.
