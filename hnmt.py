@@ -1172,6 +1172,9 @@ def main():
                 print('reduce test set to batch size', file=sys.stderr, flush=True)
                 test_src = test_src[:config['batch_size']]
                 test_trg = test_trg[:config['batch_size']]
+            test_links_maps = [(None, None, None)]*len(test_src)
+            test_pairs = list(zip(test_src, test_trg, test_links_maps))
+            
             train_src = src_sents
             train_trg = trg_sents
             train_links_maps = links_maps
