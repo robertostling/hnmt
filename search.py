@@ -36,7 +36,8 @@ def beam_with_coverage(
         beta=0.4,
         gamma=1.0,
         len_smooth=5.0,
-        speed_prune=1.0):
+        speed_prune=1.0,
+        prune=True):
     """Beam search algorithm.
 
     See the documentation for :meth:`greedy()`.
@@ -137,6 +138,7 @@ def beam_with_coverage(
 
         # prune hypotheses
         def keep(hyp, best_normalized):
+            if not prune: return True
             if hyp.last_sym == stop_symbol:
                 # only keep best completed hypothesis
                 return hyp.norm_score > best_normalized - 1e-6
