@@ -6,6 +6,28 @@ at the University of Helsinki.
 It is currently rather experimental, but the user interface and setup
 procedure should be simple enough for people to try out.
 
+## Updates
+
+There has been a number of changes to the interface, due to a rewrite of the
+data loading code so that not all training data is loaded into RAM. This
+reduces memory consumption considerably.
+
+* Training data is now given as a single file with source/target sentences
+  separated by a ||| token, using the `--train` argument. The `--source` and
+  `--target` arguments should not be used.
+* Held-out sentences for training monitoring must be specified using
+  `--heldout-source` and `--heldout-target` (as opposed to the training data,
+  these must be contained in two separate files for the source and target
+  language).
+* Vocabularies must be computed in advance. There is a new tool,
+  `make_encoder.py` which does this. One should be created for each of the
+  source and target texts, and loaded with `--load-source-vocabulary` and
+  `--load-target-vocabulary` respectively.
+* The semantics of `--beam-budget` have changed a bit, but the acceptable
+  values should be roughly the same as before, and depends on model size and
+  GPU RAM but not on sentence length. `--batch-size` is only used during
+  translation.
+
 ## Features
 
 * biLSTM encoder which can be either character-based or hybrid word/character
@@ -27,8 +49,6 @@ procedure should be simple enough for people to try out.
 * [BNAS](https://github.com/robertostling/bnas)
 * [NLTK](http://www.nltk.org/) for tokenization, but note that HNMT also
   supports pre-tokenized data from external tokenizers
-* [efmaral](https://github.com/robertostling/efmaral) if you want to try the
-  experimental supervised attention feature (not recommended, but see below)
 
 ## Quick start
 
@@ -38,25 +58,29 @@ options.
 
 Training a model on the Europarl corpus can be done like this:
 
-    python3 hnmt.py --source europarl-v7.sv-en.en \
-                    --target europarl-v7.sv-en.sv \
+    python3 make_encoder.py --min-char-count 2 --tokenizer word \
+                            --hybrid --vocabulary 50000 \
+                            --output vocab.sv europarl-v7.sv-en.sv
+
+    python3 make_encoder.py --min-char-count 2 --tokenizer char \
+                            --output vocab.en europarl-v7.sv-en.en
+
+    python3 hnmt.py --train europarl-v7.sv-en \
                     --source-tokenizer word \
                     --target-tokenizer char \
-                    --source-vocabulary 50000 \
-                    --max-source-length 30 \
-                    --max-target-length 180 \
-                    --batch-size 32 \
+                    --load-source-vocabulary vocab.sv \
+                    --load-target-vocabulary vocab.en \
+                    --batch-budget 32 \
                     --training-time 24 \
                     --log en-sv.log \
                     --save-model en-sv.model
 
 This will create a model with a hybrid encoder (with 50k vocabulary size and
-character-level encoding for the rest) and character-based
-decoder, filtering out sentences longer than 30 words (source) or 180
-characters (target) and training for 24 hours. Development set cross-entropy
-and some other statistics appended to this file, which is usually the best way
-of monitoring training. Training loss and development set translations will be
-written to stdout, so redirecting this or using `tee` is recommended.
+character-level encoding for the rest) and character-based decoder, and train
+it for 24 hours. Development set cross-entropy and some other statistics
+appended to this file, which is usually the best way of monitoring training.
+Training loss and development set translations will be written to stdout, so
+redirecting this or using `tee` is recommended.
 
 The resulting model can be used like this:
 
@@ -100,17 +124,4 @@ Select the tokenizer among these options:
 * bpe: pre-segmented with BPE (remove '@@ ' from final output)
 
 TODO: support BPE as internal segmentation (apply_bpe to training data)
-
-## Using efmaral for attention supervision (not recommended)
-
-Install the Python bindings for
-[efmaral](https://github.com/robertostling/efmaral) (i.e. run
-`python3 setup.py install` in the `efmaral` directory).
-
-Then you can simply add `--alignment-loss 1.0` when training to activate this
-feature (the number specifies the contribution of alignment/attention
-cross-entropy to the loss function). By default this contribution has an
-exponential decay (per batch), this can be specified with
-`--alignment-decay 0.9999` or such.
-
 

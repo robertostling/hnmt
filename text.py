@@ -16,6 +16,7 @@ class TextEncoder(object):
                  max_vocab=None,
                  min_count=None,
                  vocab=None,
+                 counts=None,
                  sequences=None,
                  sub_encoder=None,
                  special=('<S>', '</S>', '<UNK>')):
@@ -25,8 +26,9 @@ class TextEncoder(object):
         if vocab is not None:
             self.vocab = vocab
         else:
-            if sequences is not None:
-                c = Counter(x for xs in sequences for x in xs)
+            if sequences is not None or counts is not None:
+                c = counts if counts else \
+                        Counter(x for xs in sequences for x in xs)
                 if max_vocab is not None:
                     self.vocab = special + tuple(
                             s for s,_ in c.most_common(max_vocab))
