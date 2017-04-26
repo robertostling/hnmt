@@ -259,7 +259,7 @@ class NMT(Model):
         self.pred_fun = function(self.x+self.y[:-1], self(*(self.x+self.y[:-1])))
 
         # stats
-        self.beam_ends = np.zeros((config['max_target_length'],))
+        #self.beam_ends = np.zeros((config['max_target_length'],))
 
     def xent(self, inputs, inputs_mask, chars, chars_mask,
              outputs, outputs_mask, attention):
@@ -374,7 +374,7 @@ class NMT(Model):
                 gamma=gamma,
                 len_smooth=len_smooth,
                 **kwargs)
-        self.beam_ends[i] += 1
+        #self.beam_ends[i] += 1
         return result
 
     #def search_single(self, inputs, inputs_mask, chars, chars_mask, max_length,
