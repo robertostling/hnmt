@@ -1227,6 +1227,11 @@ def main():
                 print('reduce test set to batch size', file=sys.stderr, flush=True)
                 test_src = test_src[:config['batch_size']]
                 test_trg = test_trg[:config['batch_size']]
+
+            test_src = [config['src_encoder'].encode_sequence(sent)
+                     for sent in test_src]
+            test_trg = [config['trg_encoder'].encode_sequence(sent)
+                     for sent in test_trg]
             test_links_maps = [(None, None, None)]*len(test_src)
             test_pairs = list(zip(test_src, test_trg, test_links_maps))
             
