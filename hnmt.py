@@ -472,12 +472,26 @@ class NMT(Model):
 
 # TODO: make it possible to apply BPE here
 
-def read_sents(filename, tokenizer, lower):
-    def process(line):
-        if lower: line = line.lower()
-        if tokenizer == 'char': return line.strip()
-        elif tokenizer == 'space': return line.split()
-        return word_tokenize(line)
+def get_tokenizer(name, lowercase):
+    if name == 'char':
+        if lowercase:
+            return (lambda s: list(s.strip().lower()))
+        else:
+            return (lambda s: list(s.strip()))
+    elif (name == 'space') or (name == 'bpe'):
+        if lowercase:
+            return (lambda s: s.lower().split())
+        else:
+            return str.split
+    elif name == 'word':
+        if lowercase:
+            return (lambda s: word_tokenize(s.lower()))
+        else:
+            return word_tokenize
+    else:
+        raise ValueError('Unknown tokenizer: %s' % name)
+
+def read_sents(filename, tokenizer):
     if filename.endswith('.gz'):
         def open_func(fname):
             return gzip.open(fname, 'rt', encoding='utf-8')
@@ -485,13 +499,13 @@ def read_sents(filename, tokenizer, lower):
         def open_func(fname):
             return open(fname, 'r', encoding='utf-8')
     with open_func(filename) as f:
-        return list(map(process, f))
+        return list(map(tokenizer, f))
     
-def detokenize(sent, tokenizer):
-    if tokenizer == 'bpe':
+def detokenize(sent, tokenizer_name):
+    if tokenizer_name == 'bpe':
         string = ' '.join(sent)
         return string.replace("@@ ", "")
-    return ('' if tokenizer == 'char' else ' ').join(sent)
+    return ('' if tokenizer_name == 'char' else ' ').join(sent)
 
 
 def main():
@@ -853,12 +867,8 @@ def main():
 
         if args.score:
             print('Load sentences for scoring ...', file=sys.stderr, flush=True)
-            src_sents = read_sents(
-                    config['score_source'], config['source_tokenizer'],
-                    config['source_lowercase'] == 'yes')
-            trg_sents = read_sents(
-                    config['score_target'], config['target_tokenizer'],
-                    config['target_lowercase'] == 'yes')
+            src_sents = read_sents(config['score_source'], tokenize_src)
+            trg_sents = read_sents(config['score_target'], tokenize_trg)
 
             assert len(src_sents) == len(trg_sents)
             with open(args.score, 'w') as outf:
@@ -903,25 +913,6 @@ def main():
             print('Scores written to %s, exiting...' % args.score,
                   file=sys.stderr, flush=True)
             return
-
-        def get_tokenizer(name, lowercase):
-            if name == 'char':
-                if lowercase:
-                    return (lambda s: list(s.strip().lower()))
-                else:
-                    return (lambda s: list(s.strip()))
-            elif name == 'space':
-                if lowercase:
-                    return (lambda s: s.lower().split())
-                else:
-                    return str.split
-            elif name == 'word':
-                if lowercase:
-                    return (lambda s: word_tokenize(s.lower()))
-                else:
-                    return word_tokenize
-            else:
-                raise ValueError('Unknown tokenizer: %s' % name)
 
         tokenize_src = get_tokenizer(
                 config['source_tokenizer'],
@@ -1061,6 +1052,9 @@ def main():
             if args.load_source_vocabulary:
                 with open(args.load_source_vocabulary, 'rb') as f:
                     src_encoder = pickle.load(f)
+                    if not src_encoder.sub_encoder:
+                         raise NotImplementedError(
+                        'Source encoder must be hybrid (no subencoder found)')
             else:
                 raise NotImplementedError(
                         '--load-source-vocabulary required when training '
@@ -1218,10 +1212,7 @@ def main():
         print('Translating...', file=sys.stderr, flush=True, end='')
         outf = sys.stdout if args.output is None else open(
                 args.output, 'w', encoding='utf-8')
-        sents = read_sents(
-                args.translate,
-                config['source_tokenizer'],
-                config['source_lowercase'] == 'yes')
+        sents = read_sents(args.translate, tokenize_src)
 
         if args.reference: hypotheses = []
         if args.nbest_list: nbest = args.nbest_list
@@ -1241,9 +1232,7 @@ def main():
 
         # compute BLEU if reference file is given
         if args.reference:
-            trg = read_sents(args.reference,
-                             config['target_tokenizer'],
-                             config['target_lowercase'] == 'yes')
+            trg = read_sents(args.reference, tokenize_trg)
 
             if config['target_tokenizer'] == 'char':
                 system = [detokenize(wordpunct_tokenize(s),'space')
@@ -1289,21 +1278,17 @@ def main():
 
         if config['heldout_source'] and config['heldout_target']:
             print('Load test set ...', file=sys.stderr, flush=True)
-            test_src = read_sents(
-                args.heldout_source, config['source_tokenizer'],
-                config['source_lowercase'] == 'yes')
-            test_trg = read_sents(
-                args.heldout_target, config['target_tokenizer'],
-                config['target_lowercase'] == 'yes')
+            test_src = read_sents(args.heldout_source, tokenize_src)
+            test_trg_unencoded = read_sents(args.heldout_target, tokenize_trg)
             if len(test_src) > config['batch_size']:
                 print('reduce test set to batch size', file=sys.stderr, flush=True)
                 test_src = test_src[:config['batch_size']]
-                test_trg = test_trg[:config['batch_size']]
+                test_trg_unencoded = test_trg_unencoded[:config['batch_size']]
 
             test_src = [config['src_encoder'].encode_sequence(sent)
                      for sent in test_src]
             test_trg = [config['trg_encoder'].encode_sequence(sent)
-                     for sent in test_trg]
+                     for sent in test_trg_unencoded]
             test_links_maps = [(None, None, None)]*len(test_src)
             test_pairs = list(zip(test_src, test_trg, test_links_maps))
 
@@ -1373,7 +1358,8 @@ def main():
 
         # only translate one minibatch for monitoring
         translate_src = test_src[:config['batch_size']]
-        translate_trg = test_trg[:config['batch_size']]
+        # we don't need the encoded reference translation here
+        translate_trg = test_trg_unencoded[:config['batch_size']]
 
         chrf_max = 0.0
         bleu_max = 0.0
@@ -1437,15 +1423,13 @@ def main():
                 if batch_nr % config['translate_every'] == 0:
                     t0 = time()
                     test_dec = list(translate(translate_src, encode=False))
-                    print('test_dec before', test_dec)
                     for src, trg, trg_dec in zip(
                             translate_src, translate_trg, test_dec):
                         print('   SOURCE / TARGET / OUTPUT')
                         print(detokenize(
                             config['src_encoder'].decode_sentence(src),
                             config['source_tokenizer']))
-                        print(detokenize(
-                            config['trg_encoder'].decode_sentence(trg),
+                        print(detokenize(trg,
                             config['target_tokenizer']))
                         print(trg_dec)
                         print('-'*72)
@@ -1457,15 +1441,11 @@ def main():
                                   for s in test_dec]
                         reference = [
                             detokenize(wordpunct_tokenize(
-                                detokenize(
-                                    config['trg_encoder'].decode_sentence(s),
-                                    'char')),
+                                detokenize(s, 'char')),
                                 'space')
                             for s in translate_trg]
                     else:
-                        reference = [detokenize(
-                            config['trg_encoder'].decode_sentence(s),
-                            config['target_tokenizer'])
+                        reference = [detokenize(s, config['target_tokenizer'])
                                      for s in translate_trg ]
                         system = test_dec
 
