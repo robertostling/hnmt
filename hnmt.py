@@ -502,13 +502,14 @@ class NMT(Model):
                     axis=0))
 
 # TODO: make it possible to apply BPE here
+# For the moment, bpe tokenizer == space tokenizer
 
 def read_sents(filename, tokenizer, lower):
     def process(line):
         if lower: line = line.lower()
         if tokenizer == 'char': return line.strip()
-        elif tokenizer == 'space': return line.split()
-        return word_tokenize(line)
+        elif tokenizer == 'word': return word_tokenize(line)
+        return line.split()
     if filename.endswith('.gz'):
         def open_func(fname):
             return gzip.open(fname, 'rt', encoding='utf-8')
@@ -552,8 +553,6 @@ def main():
             help='split an existing model into separate files for each submodule')
     parser.add_argument('--ensemble-average', action='store_true',
             help='ensemble models by averaging parameters (DEPRECATED)')
-    #parser.add_argument('--legacy-loading', action='store_true',
-    #        help='load all of the training data into memory')
     parser.add_argument('--translate', type=str,
             metavar='FILE',
             help='name of file to translate')
@@ -605,12 +604,6 @@ def main():
     parser.add_argument('--train', type=str, default=argparse.SUPPRESS,
             metavar='FILE',
             help='name of training data file (with source ||| target pairs)')
-    #parser.add_argument('--source', type=str, default=argparse.SUPPRESS,
-    #        metavar='FILE',
-    #        help='name of source language file')
-    #parser.add_argument('--target', type=str, default=argparse.SUPPRESS,
-    #        metavar='FILE',
-    #        help='name of target language file')
     parser.add_argument('--score-source', type=str, default=argparse.SUPPRESS,
             metavar='FILE',
             help='name of source language file for sentence scoring')
@@ -741,11 +734,7 @@ def main():
             'target_lowercase': 'no',
             'source_tokenizer': 'space',
             'target_tokenizer': 'char',
-            #'max_source_length': None,
-            #'max_target_length': None,
             'train': None,
-            #'source': None,
-            #'target': None,
             'decoder_gate': 'lstm',
             'heldout_source': None,
             'heldout_target': None,
@@ -984,112 +973,6 @@ def main():
                 preprocess=tokenize_src_trg,
                 length=lambda pair: sum(map(len, pair)))
 
-        #print('reading sentences...', file=sys.stderr, flush=True)
-        #src_sents = read_sents(
-        #        config['source'], config['source_tokenizer'],
-        #        config['source_lowercase'] == 'yes')
-        #trg_sents = read_sents(
-        #        config['target'], config['target_tokenizer'],
-        #        config['target_lowercase'] == 'yes')
-        #print('...done', file=sys.stderr, flush=True)
-        #assert len(src_sents) == len(trg_sents)
-
-        #max_source_length = config['max_source_length']
-        #max_target_length = config['max_target_length']
-
-        #def accept_pair(pair):
-        #    src_len, trg_len = list(map(len, pair))
-        #    if not src_len or not trg_len: return False
-        #    if max_source_length and src_len > max_source_length: return False
-        #    if max_target_length and trg_len > max_target_length: return False
-        #    return True
-
-        #test_keep_sents = [i for i,pair
-        #                   in enumerate(zip(test_src_sents, test_trg_sents))
-        #                   if accept_pair(pair)]
-        #test_src_sents = [test_src_sents[i] for i in test_keep_sents]
-        #test_trg_sents = [test_trg_sents[i] for i in test_keep_sents]
-        #n_test_sents = len(test_src_sents)
-
-        #if n_test_sents == 0:
-        #    # if no test set is given, take one minibatch from train
-        #    n_test_sents = config['batch_size']
-
-        #keep_sents = [i for i,pair in enumerate(zip(src_sents, trg_sents))
-        #              if accept_pair(pair)]
-        #random.shuffle(keep_sents)
-
-        # OBSOLETE
-        # test set is prepended to shuffled test set,
-        # because the following code is built around the assumption
-        # of a single data set
-        
-        #print('Keeping %d of %d sentences' % (len(keep_sents), len(src_sents)),
-        #      flush=True)
-
-        #src_sents = test_src_sents + [src_sents[i] for i in keep_sents]
-        #trg_sents = test_trg_sents + [trg_sents[i] for i in keep_sents]
-
-        #if not max_source_length:
-        #    config['max_source_length'] = max(map(len, src_sents))
-        #if not max_target_length:
-        #    config['max_target_length'] = max(map(len, trg_sents))
-
-        #if args.alignment_loss:
-        #    # Take a sentence segmented according to tokenizer
-        #    # ('char'/'word'/'space'), retokenize it, and return
-        #    # a tuple (tokens, maps) where maps is a list the same length as
-        #    # tokens, so that maps[i] contains a list of indexes j in the
-        #    # parameter sent, iff token i contains j.
-        #    def make_tokens(sent, tokenizer):
-        #        if tokenizer == 'char':
-        #            s = ''.join(sent)
-        #            tokens = wordpunct_tokenize(s)
-        #            maps = [[] for _ in tokens]
-        #            i = 0
-        #            for token_idx, token in enumerate(tokens):
-        #                try:
-        #                    next_i = s.index(token, i)
-        #                except ValueError as e:
-        #                    print(sent, i, s, token)
-        #                    raise e
-        #                for k in range(i, next_i + len(token)):
-        #                    maps[token_idx].append(k)
-        #                i = next_i + len(token)
-        #            for k in range(i, len(s)):
-        #                maps[-1].append(k)
-        #            return (tokens, maps)
-        #        else:
-        #            return (sent, [[i] for i in range(len(sent))])
-
-        #    # Get training sentences as tokens, retokenizing if needed.
-        #    # The mapping from translation tokens to alignment tokens is also
-        #    # returned as a list (of the same size as the translation
-        #    # sentence).
-        #    src_tokens, src_maps = list(zip(*
-        #        [make_tokens(sent, config['source_tokenizer'])
-        #         for sent in src_sents]))
-        #    trg_tokens, trg_maps = list(zip(*
-        #        [make_tokens(sent, config['target_tokenizer'])
-        #         for sent in trg_sents]))
-        #    # Run efmaral to get alignments.
-        #    links = align_soft(
-        #            [[s.lower() for s in sent] for sent in src_tokens],
-        #            [[s.lower() for s in sent] for sent in trg_tokens],
-        #            2,      # number of independent samplers
-        #            1.0,    # number of iterations (relative to default)
-        #            0.2,    # NULL prior
-        #            0.001,  # lexical Dirichlet prior
-        #            0.001,  # NULL lexical Dirichlet prior
-        #            False,  # do not reverse the alignment direction
-        #            3,      # use HMM+fertility model
-        #            4, 0,   # 4-prefix source stemming (TODO: add option)
-        #            4, 0,   # 4-prefix target stemming (TODO: add option)
-        #            123)    # random seed
-        #    links_maps = list(zip(links, src_maps, trg_maps))
-        #else:
-        #    links_maps = [(None, None, None)]*len(src_sents)
-
         if not args.load_model:
             # Source encoder is a hybrid, with a character-based encoder for
             # rare words and a word-level decoder for the rest.
@@ -1101,15 +984,6 @@ def main():
                 raise NotImplementedError(
                         '--load-source-vocabulary required when training '
                         'from scratch')
-                #src_char_encoder = TextEncoder(
-                #        sequences=[token for sent in src_sents
-                #                         for token in sent],
-                #        min_count=args.min_char_count,
-                #        special=())
-                #src_encoder = TextEncoder(
-                #        sequences=src_sents,
-                #        max_vocab=args.source_vocabulary,
-                #        sub_encoder=src_char_encoder)
             if args.load_target_vocabulary:
                 with open(args.load_target_vocabulary, 'rb') as f:
                     trg_encoder = pickle.load(f)
@@ -1117,15 +991,6 @@ def main():
                 raise NotImplementedError(
                         '--load-target-vocabulary required when training '
                         'from scratch')
-                #trg_encoder = TextEncoder(
-                #        sequences=trg_sents,
-                #        max_vocab=args.target_vocabulary,
-                #        min_count=(args.min_char_count
-                #                   if config['target_tokenizer'] == 'char'
-                #                   else None),
-                #        special=(('<S>', '</S>')
-                #                 if config['target_tokenizer'] == 'char'
-                #                 else ('<S>', '</S>', '<UNK>')))
             print('...done', file=sys.stderr, flush=True)
 
             if not args.target_embedding_dims is None:
@@ -1213,43 +1078,6 @@ def main():
                 if lines:
                     yield '\n'.join(lines)
 
-            #if i % (50*config['batch_size']) == 0:
-            #    print('\nmean beam search length: {}'.format(
-            #        np.sum(model.beam_ends * np.arange(len(model.beam_ends))) /
-            #        np.sum(model.beam_ends)))
-        #print('\nFinal mean beam search length: {}'.format(
-        #    np.sum(model.beam_ends * np.arange(len(model.beam_ends))) /
-        #    np.sum(model.beam_ends)))
-        #print('beam end counts: {}'.format(model.beam_ends))
-
-    # Create padded 3D tensors for supervising attention, given word
-    # alignments.
-    #def pad_links(links_batch, x, y, src_maps, trg_maps):
-    #    batch_size = len(links_batch)
-    #    inputs, inputs_mask = x[:2]
-    #    outputs, outputs_mask = y[:2]
-    #    assert inputs.shape[1] == batch_size
-    #    assert outputs.shape[1] == batch_size
-    #    m = np.zeros((outputs.shape[0], batch_size, inputs.shape[0]),
-    #                 dtype=theano.config.floatX)
-    #    for i,(links,src_map,trg_map) in enumerate(zip(
-    #        links_batch, src_maps, trg_maps)):
-    #        links = links.reshape(len(trg_map), len(src_map)+1)
-    #        for trg_tok_idx in range(len(trg_map)):
-    #            for src_tok_idx in range(len(src_map)):
-    #                p = links[trg_tok_idx, src_tok_idx]
-    #                for trg_idx in trg_map[trg_tok_idx]:
-    #                    for src_idx in src_map[src_tok_idx]:
-    #                        # +1 is to compensate for <S>
-    #                        # If not used (but why shouldn't it?) this
-    #                        # should be changed.
-    #                        m[trg_idx+1, i, src_idx+1] = p
-    #    # Always align </S> to </S>
-    #    m[-1, :, -1] = 1.0
-    #    m += 0.001
-    #    m /= m.sum(axis=2, keepdims=True)
-    #    return m
-
     if args.translate:
         print('Translating...', file=sys.stderr, flush=True, end='')
         outf = sys.stdout if args.output is None else open(
@@ -1300,28 +1128,13 @@ def main():
                     reference,hypotheses))
     else:
         def prepare_batch(batch_pairs):
-            # FIXME: does this need to encode?
             src_batch, trg_batch, links_maps_batch = \
                     list(zip(*batch_pairs))
             x = config['src_encoder'].pad_sequences(src_batch)
             y = config['trg_encoder'].pad_sequences(trg_batch)
-            #if args.alignment_loss:
-            #    links_batch, src_maps_batch, trg_maps_batch = \
-            #            list(zip(*links_maps_batch))
-            #    y = y + (pad_links(
-            #        links_batch, x, y, src_maps_batch, trg_maps_batch),)
-            if False:
-                pass
-            else:
-                y = y + (np.ones(y[0].shape + (x[0].shape[0],),
-                                    dtype=theano.config.floatX),)
+            y = y + (np.ones(y[0].shape + (x[0].shape[0],),
+                                dtype=theano.config.floatX),)
             return x, y
-
-        # encoding in advance
-        #src_sents = [config['src_encoder'].encode_sequence(sent)
-        #             for sent in src_sents]
-        #trg_sents = [config['trg_encoder'].encode_sequence(sent)
-        #             for sent in trg_sents]
 
         if config['heldout_source'] and config['heldout_target']:
             print('Load test set ...', file=sys.stderr, flush=True)
@@ -1336,6 +1149,7 @@ def main():
                 test_src = test_src[:config['batch_size']]
                 test_trg = test_trg[:config['batch_size']]
 
+            test_trg_unencoded = test_trg
             test_src = [config['src_encoder'].encode_sequence(sent)
                      for sent in test_src]
             test_trg = [config['trg_encoder'].encode_sequence(sent)
@@ -1361,6 +1175,8 @@ def main():
 
         # weight for the variable minibatch budget
         # FIXME: these need to be properly tuned
+        # FIXME TOO: these are not used anymore, but perhaps should be (then
+        #             in largetext.py)
         const_weight = 110
         src_weight = 1
         tgt_weight = 1
@@ -1394,7 +1210,8 @@ def main():
 
         # only translate one minibatch for monitoring
         translate_src = test_src[:config['batch_size']]
-        translate_trg = test_trg[:config['batch_size']]
+        translate_trg = test_trg_unencoded
+        #translate_trg = test_trg[:config['batch_size']]
 
         chrf_max = 0.0
         bleu_max = 0.0
@@ -1453,15 +1270,13 @@ def main():
                     t0 = time()
                     test_dec = list(translate(translate_src, encode=False))
                     print('test_dec before', test_dec)
-                    for src, trg, trg_dec in zip(
+                    for src, trg_raw, trg_dec in zip(
                             translate_src, translate_trg, test_dec):
                         print('   SOURCE / TARGET / OUTPUT')
                         print(detokenize(
                             config['src_encoder'].decode_sentence(src),
                             config['source_tokenizer']))
-                        print(detokenize(
-                            config['trg_encoder'].decode_sentence(trg),
-                            config['target_tokenizer']))
+                        print(detokenize(trg_raw, config['target_tokenizer']))
                         print(trg_dec)
                         print('-'*72)
                     print('Translation finished: %.2f s' % (time()-t0),
@@ -1472,16 +1287,13 @@ def main():
                                   for s in test_dec]
                         reference = [
                             detokenize(wordpunct_tokenize(
-                                detokenize(
-                                    config['trg_encoder'].decode_sentence(s),
-                                    'char')),
+                                detokenize(s, 'char')),
                                 'space')
                             for s in translate_trg]
                     else:
                         reference = [detokenize(
-                            config['trg_encoder'].decode_sentence(s),
-                            config['target_tokenizer'])
-                                     for s in translate_trg ]
+                            s, config['target_tokenizer'])
+                                     for s in translate_trg]
                         system = test_dec
 
                     bleu_result = BLEU(system,[reference])
