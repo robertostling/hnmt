@@ -467,8 +467,9 @@ class NMT(Model):
 # TODO: make it possible to apply BPE here
 # For the moment, bpe tokenizer == space tokenizer
 
-def read_sents(filename, tokenizer, lower):
+def read_sents(filename, tokenizer, lower, backwards):
     def process(line):
+        if backwards: line = line[::-1]
         if lower: line = line.lower()
         if tokenizer == 'char': return line.strip()
         elif tokenizer == 'word': return word_tokenize(line)
@@ -516,6 +517,9 @@ def main():
             help='split an existing model into separate files for each submodule')
     parser.add_argument('--ensemble-average', action='store_true',
             help='ensemble models by averaging parameters (DEPRECATED)')
+    parser.add_argument('--backwards', type=str, choices=('yes','no'),
+                        default=argparse.SUPPRESS,
+            help='reverse the order (on character level) of all input data')
     parser.add_argument('--translate', type=str,
             metavar='FILE',
             help='name of file to translate')
@@ -697,6 +701,7 @@ def main():
             'target_lowercase': 'no',
             'source_tokenizer': 'space',
             'target_tokenizer': 'char',
+            'backwards': 'no',
             'train': None,
             'decoder_gate': 'lstm',
             'heldout_source': None,
@@ -754,6 +759,8 @@ def main():
         model = models[0]
         config = configs[0]
         # allow loading old models without these parameters
+        if 'backwards' not in config:
+            config['backwards'] = 'no'
         if 'alpha' not in config:
             config['alpha'] = 0.01
         if 'beta' not in config:
@@ -795,6 +802,8 @@ def main():
                 # allow loading old models without these parameters
                 if 'alignment_decay' not in config:
                     config['alignment_decay'] = 0.9995
+                if 'backwards' not in config:
+                    config['backwards'] = 'no'
                 if 'alpha' not in config:
                     config['alpha'] = 0.2
                 if 'beta' not in config:
@@ -843,10 +852,12 @@ def main():
             print('Load sentences for scoring ...', file=sys.stderr, flush=True)
             src_sents = read_sents(
                     config['score_source'], config['source_tokenizer'],
-                    config['source_lowercase'] == 'yes')
+                    config['source_lowercase'] == 'yes',
+                    config['backwards'] == 'yes')
             trg_sents = read_sents(
                     config['score_target'], config['target_tokenizer'],
-                    config['target_lowercase'] == 'yes')
+                    config['target_lowercase'] == 'yes',
+                    config['backwards'] == 'yes')
 
             assert len(src_sents) == len(trg_sents)
             with open(args.score, 'w') as outf:
@@ -1055,7 +1066,8 @@ def main():
         sents = read_sents(
                 args.translate,
                 config['source_tokenizer'],
-                config['source_lowercase'] == 'yes')
+                config['source_lowercase'] == 'yes',
+                config['backwards'] == 'yes')
 
         if args.reference: hypotheses = []
         if args.nbest_list: nbest = args.nbest_list
@@ -1077,7 +1089,8 @@ def main():
         if args.reference:
             trg = read_sents(args.reference,
                              config['target_tokenizer'],
-                             config['target_lowercase'] == 'yes')
+                             config['target_lowercase'] == 'yes',
+                             config['backwards'] == 'yes')
 
             if config['target_tokenizer'] == 'char':
                 system = [detokenize(wordpunct_tokenize(s),'space')
@@ -1110,10 +1123,12 @@ def main():
             print('Load test set ...', file=sys.stderr, flush=True)
             test_src = read_sents(
                 args.heldout_source, config['source_tokenizer'],
-                config['source_lowercase'] == 'yes')
+                config['source_lowercase'] == 'yes',
+                config['backwards'] == 'yes')
             test_trg = read_sents(
                 args.heldout_target, config['target_tokenizer'],
-                config['target_lowercase'] == 'yes')
+                config['target_lowercase'] == 'yes',
+                config['backwards'] == 'yes')
             if len(test_src) > config['batch_size']:
                 print('reduce test set to batch size', file=sys.stderr, flush=True)
                 test_src = test_src[:config['batch_size']]
@@ -1194,6 +1209,11 @@ def main():
 
                 print('Training batch size: %d' % len(train_sent_pairs),
                       flush=True)
+
+                if config['backwards'] == 'yes':
+                    train_sent_pairs = [
+                            (src_sent[::-1], trg_sent[::-1])
+                            for src_sent, trg_sent in train_sent_pairs]
 
                 batch_src = [config['src_encoder'].encode_sequence(src_sent)
                              for src_sent, trg_sent in train_sent_pairs]
