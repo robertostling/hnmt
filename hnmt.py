@@ -427,8 +427,12 @@ class NMT(Model):
         #   n_chars x src_embedding_dims
         # NOTE: the batch size here is n_chars, which is the total number of
         # unknown words in all the sentences in the inputs matrix.
-        char_vectors = T.concatenate(
-                [fwd_char_h_seq[-1], back_char_h_seq[0]], axis=-1)
+        # Create an empty matrix if there are no unknown words
+        # (e.g. pure word-level encoder)
+        char_vectors = theano.ifelse.ifelse(T.gt(chars.shape[0], 0),
+                T.concatenate([fwd_char_h_seq[-1], back_char_h_seq[0]], axis=-1),
+                T.zeros([0, self.config['src_embedding_dims']],
+                dtype=theano.config.floatX))
 
         # Compute separate masks for known words (with input symbol >= 0)
         # and unknown words (with input symbol < 0).
@@ -442,12 +446,15 @@ class NMT(Model):
 
         # Compute the final embedding sequence by mixing the known word
         # vectors with the character encoder output of the unknown words.
+        # If there is no character encoder, just use the known word vectors.
         embedded_unknown = char_vectors[unknown_indexes]
         embedded_known = self.src_embeddings(known_indexes)
-        embedded_inputs = \
+        embedded_inputs = theano.ifelse.ifelse(T.gt(chars.shape[0], 0),
                 (unknown_mask.dimshuffle(0,1,'x').astype(
                     theano.config.floatX) * embedded_unknown) + \
                 (known_mask.dimshuffle(0,1,'x').astype(
+                    theano.config.floatX) * embedded_known),
+                known_mask.dimshuffle(0,1,'x').astype(
                     theano.config.floatX) * embedded_known)
 
         # Forward encoding pass
@@ -980,6 +987,13 @@ def main():
             if args.load_source_vocabulary:
                 with open(args.load_source_vocabulary, 'rb') as f:
                     src_encoder = pickle.load(f)
+                    if not src_encoder.sub_encoder:
+                        print("No sub-encoder found in source vocabulary, "
+                              "creating dummy...",
+                            file=sys.stderr, flush=True)
+                        src_encoder.sub_encoder = TextEncoder(
+                                counts={"": 1}, min_count=0,
+                            special=())
             else:
                 raise NotImplementedError(
                         '--load-source-vocabulary required when training '
