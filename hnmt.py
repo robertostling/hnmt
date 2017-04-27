@@ -291,35 +291,6 @@ class NMT(Model):
         return super().loss() + self.lambda_o*outputs_xent \
                 + self.lambda_a*attention_xent
 
-    def unify_embeddings(self, model):
-        """Ensure that the embeddings use the same vocabulary as model"""
-        other_src_char_encoder = model.config['src_encoder'].sub_encoder
-        other_src_encoder = model.config['src_encoder']
-        other_trg_encoder = model.config['trg_encoder']
-        src_char_encoder = self.config['src_encoder'].sub_encoder
-        src_encoder = self.config['src_encoder']
-        trg_encoder = self.config['trg_encoder']
-
-        def make_translation(this, that):
-            return np.array([this.index[x] for x in this.vocab])
-
-        if src_char_encoder.vocab != other_src_char_encoder.vocab:
-            trans_src_char = make_translation(
-                    src_char_encoder, other_src_char_encoder)
-            self.src_char_embeddings._w.set_value(
-                    self.src_char_embeddings._w.get_value()[trans_src_char])
-
-        if src_encoder.vocab != other_src_encoder.vocab:
-            trans_src = make_translation(src_encoder, other_src_encoder)
-            self.src_embeddings._w.set_value(
-                    self.src_embeddings._w.get_value()[trans_src])
-
-        if trg_encoder.vocab != other_trg_encoder.vocab:
-            trans_trg = make_translation(trg_encoder, other_trg_encoder)
-            self.trg_embeddings._w.set_value(
-                    self.trg_embeddings._w.get_value()[trans_trg])
-
-
     def search(self, inputs, inputs_mask, chars, chars_mask,
                max_length, beam_size=8,
                alpha=0.2, beta=0.2, gamma=1.0, len_smooth=5.0, others=[],
@@ -396,21 +367,6 @@ class NMT(Model):
                 **kwargs)
         #self.beam_ends[i] += 1
         return result
-
-    #def search_single(self, inputs, inputs_mask, chars, chars_mask, max_length,
-    #           beam_size=8):
-    #    h_0, c_0, attended = self.encode_fun(
-    #            inputs, inputs_mask, chars, chars_mask)
-    #    return self.decoder.search(
-    #            self.predict_fun,
-    #            self.trg_embeddings._w.get_value(borrow=True),
-    #            self.config['trg_encoder']['<S>'],
-    #            self.config['trg_encoder']['</S>'],
-    #            max_length,
-    #            h_0=h_0, c_0=c_0,
-    #            attended=attended,
-    #            attention_mask=inputs_mask,
-    #            beam_size=beam_size)
 
     def encode(self, inputs, inputs_mask, chars, chars_mask):
         # First run a bidirectional LSTM encoder over the unknown word
