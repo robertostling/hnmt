@@ -537,10 +537,10 @@ def main():
             metavar='FILE',
             help='name of file to write translated text to')
     parser.add_argument('--heldout-source', type=str,
-            metavar='FILE',
+            metavar='FILE', default=argparse.SUPPRESS,
             help='name of test-set file (source language)')
     parser.add_argument('--heldout-target', type=str,
-            metavar='FILE',
+            metavar='FILE', default=argparse.SUPPRESS,
             help='name of test-set file (target language)')
     parser.add_argument('--beam-size', type=int, default=argparse.SUPPRESS,
             metavar='N',
@@ -1287,8 +1287,7 @@ def main():
         #trg_sents = [config['trg_encoder'].encode_sequence(sent)
         #             for sent in trg_sents]
 
-        if args.heldout_source and args.heldout_target and \
-                not args.alignment_loss:
+        if config['heldout_source'] and config['heldout_target']:
             print('Load test set ...', file=sys.stderr, flush=True)
             test_src = read_sents(
                 args.heldout_source, config['source_tokenizer'],
@@ -1326,9 +1325,10 @@ def main():
 
         #train_pairs = list(zip(train_src, train_trg, train_links_maps))
 
-        logf = None
+        logf, evalf = None, None
         if args.log_file:
             logf = open(args.log_file, 'a', encoding='utf-8')
+            evalf = open(args.log_file + '.eval', 'a', encoding='utf-8')
 
         epoch = 0
         batch_nr = 0
@@ -1375,6 +1375,8 @@ def main():
         translate_src = test_src[:config['batch_size']]
         translate_trg = test_trg[:config['batch_size']]
 
+        chrf_max = 0.0
+        bleu_max = 0.0
         while time() < end_time:
             # Sort by combined sequence length when grouping training instances
             # into batches.
@@ -1434,7 +1436,8 @@ def main():
 
                 if batch_nr % config['translate_every'] == 0:
                     t0 = time()
-                    test_dec = translate(translate_src, encode=False)
+                    test_dec = list(translate(translate_src, encode=False))
+                    print('test_dec before', test_dec)
                     for src, trg, trg_dec in zip(
                             translate_src, translate_trg, test_dec):
                         print('   SOURCE / TARGET / OUTPUT')
@@ -1451,7 +1454,7 @@ def main():
 
                     if config['target_tokenizer'] == 'char':
                         system = [detokenize(wordpunct_tokenize(s),'space')
-                                  for s in test_dec ]
+                                  for s in test_dec]
                         reference = [
                             detokenize(wordpunct_tokenize(
                                 detokenize(
@@ -1459,21 +1462,38 @@ def main():
                                     'char')),
                                 'space')
                             for s in translate_trg]
-                        print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(
-                            system,[reference]))
-                        print('chrF = %f (precision = %f, recall = %f)' % chrF(
-                            reference,system))
                     else:
                         reference = [detokenize(
                             config['trg_encoder'].decode_sentence(s),
                             config['target_tokenizer'])
                                      for s in translate_trg ]
-                        print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(
-                            test_dec,[reference]))
-                        print('chrF = %f (precision = %f, recall = %f)' % chrF(
-                            reference,test_dec))
+                        system = test_dec
 
-                    # FIXME: save model if best score (by which measure?)
+                    bleu_result = BLEU(system,[reference])
+                    chrf_result = chrF(reference,system)
+                    is_best = chrf_result[0] >= chrf_max
+                    chrf_max = max(chrf_result[0], chrf_max)
+                    bleu_max = max(bleu_result[0], bleu_max)
+                    print('BLEU = %f (%f, %f, %f, %f, BP = %f)' %
+                            bleu_result)
+                    print('chrF = %f (precision = %f, recall = %f)' %
+                            chrf_result)
+
+                    if evalf:
+                        print('%d\t%.3f\t%.3f\t%d\t%d' % (
+                                int(t0 - start_time),
+                                bleu_result[0],
+                                chrf_result[0],
+                                optimizer.n_updates,
+                                sent_nr),
+                            file=evalf, flush=True)
+
+                    if is_best:
+                        with open(args.save_model, 'wb') as f:
+                            pickle.dump(config, f)
+                            model.save(f)
+                            optimizer.save(f)
+
 
                 #print('lambda_a = %g' % model.lambda_a.get_value())
                 model.lambda_a.set_value(np.array(
@@ -1484,6 +1504,7 @@ def main():
             epoch += 1
 
         if logf: logf.close()
+        if evalf: evalf.close()
         print('Training finished, saving final model', flush=True)
 
         with open(args.save_model + '.final', 'wb') as f:
