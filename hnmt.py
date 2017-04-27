@@ -876,7 +876,9 @@ def main():
                     # Log-probability per sentence
                     log_p = (np.log(p_y) * test_outputs_mask[1:]).sum(0)
                     # Length penalty of each sentence
-                    lp = np.power((5 + len_y) / 6, config['alpha'])
+                    lp = np.power((config['len_smooth'] + len_y) /
+                                    (1.0 + config['len_smooth']),
+                                  config['alpha'])
                     # Coverage penalty
                     attention_trg_sum = (
                             test_outputs_mask[1:][...,None] *
