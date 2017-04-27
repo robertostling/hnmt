@@ -470,13 +470,14 @@ class NMT(Model):
                     axis=0))
 
 # TODO: make it possible to apply BPE here
+# For the moment, bpe tokenizer == space tokenizer
 
 def read_sents(filename, tokenizer, lower):
     def process(line):
         if lower: line = line.lower()
         if tokenizer == 'char': return line.strip()
-        elif tokenizer == 'space': return line.split()
-        return word_tokenize(line)
+        elif tokenizer == 'word' : return word_tokenize(line)
+        return line.split()
     if filename.endswith('.gz'):
         def open_func(fname):
             return gzip.open(fname, 'rt', encoding='utf-8')
@@ -1208,12 +1209,6 @@ def main():
                                     dtype=theano.config.floatX),)
             return x, y
 
-        # encoding in advance
-        src_sents = [config['src_encoder'].encode_sequence(sent)
-                     for sent in src_sents]
-        trg_sents = [config['trg_encoder'].encode_sequence(sent)
-                     for sent in trg_sents]
-
         if args.testset_source and args.testset_target and \
                 not args.alignment_loss:
             print('Load test set ...', file=sys.stderr, flush=True)
@@ -1226,14 +1221,8 @@ def main():
             if len(test_src) > config['batch_size']:
                 print('reduce test set to batch size', file=sys.stderr, flush=True)
                 test_src = test_src[:config['batch_size']]
-                test_trg = test_trg[:config['batch_size']]
-
-            test_src = [config['src_encoder'].encode_sequence(sent)
-                     for sent in test_src]
-            test_trg = [config['trg_encoder'].encode_sequence(sent)
-                     for sent in test_trg]
+                test_trg_unencoded = test_trg[:config['batch_size']]
             test_links_maps = [(None, None, None)]*len(test_src)
-            test_pairs = list(zip(test_src, test_trg, test_links_maps))
             
             train_src = src_sents
             train_trg = trg_sents
@@ -1241,15 +1230,24 @@ def main():
         else:
             # reseparating "test" set from train set
             test_src = src_sents[:n_test_sents]
-            test_trg = trg_sents[:n_test_sents]
+            test_trg_unencoded = trg_sents[:n_test_sents]
             test_links_maps = links_maps[:n_test_sents]
-            test_pairs = list(zip(test_src, test_trg, test_links_maps))
 
             train_src = src_sents[n_test_sents:]
             train_trg = trg_sents[n_test_sents:]
             train_links_maps = links_maps[n_test_sents:]
 
+        # encoding in advance
+        train_src = [config['src_encoder'].encode_sequence(sent)
+                     for sent in train_src]
+        train_trg = [config['trg_encoder'].encode_sequence(sent)
+                     for sent in train_trg]
         train_pairs = list(zip(train_src, train_trg, train_links_maps))
+        test_src = [config['src_encoder'].encode_sequence(sent)
+                     for sent in test_src]
+        test_trg = [config['trg_encoder'].encode_sequence(sent)
+                     for sent in test_trg_unencoded]
+        test_pairs = list(zip(test_src, test_trg, test_links_maps))
 
         logf = None
         if args.log_file:
@@ -1298,7 +1296,8 @@ def main():
 
         # only translate one minibatch for monitoring
         translate_src = test_src[:config['batch_size']]
-        translate_trg = test_trg[:config['batch_size']]
+        # we don't need the encoded reference translation here
+        translate_trg = test_trg_unencoded[:config['batch_size']]
 
         while time() < end_time:
             # Sort by combined sequence length when grouping training instances
@@ -1348,16 +1347,14 @@ def main():
 
                 if batch_nr % config['translate_every'] == 0:
                     t0 = time()
-                    test_dec = translate(translate_src, encode=False)
+                    test_dec = list(translate(translate_src, encode=False))
                     for src, trg, trg_dec in zip(
                             translate_src, translate_trg, test_dec):
                         print('   SOURCE / TARGET / OUTPUT')
                         print(detokenize(
                             config['src_encoder'].decode_sentence(src),
                             config['source_tokenizer']))
-                        print(detokenize(
-                            config['trg_encoder'].decode_sentence(trg),
-                            config['target_tokenizer']))
+                        print(detokenize(trg, config['target_tokenizer']))
                         print(trg_dec)
                         print('-'*72)
                     print('Translation finished: %.2f s' % (time()-t0),
@@ -1368,24 +1365,17 @@ def main():
                                   for s in test_dec ]
                         reference = [
                             detokenize(wordpunct_tokenize(
-                                detokenize(
-                                    config['trg_encoder'].decode_sentence(s),
-                                    'char')),
+                                detokenize(s, 'char')),
                                 'space')
                             for s in translate_trg]
-                        print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(
-                            system,[reference]))
-                        print('chrF = %f (precision = %f, recall = %f)' % chrF(
-                            reference,system))
                     else:
-                        reference = [detokenize(
-                            config['trg_encoder'].decode_sentence(s),
-                            config['target_tokenizer'])
+                        system = test_dec
+                        reference = [detokenize(s, config['target_tokenizer'])
                                      for s in translate_trg ]
-                        print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(
-                            test_dec,[reference]))
-                        print('chrF = %f (precision = %f, recall = %f)' % chrF(
-                            reference,test_dec))
+                    print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(
+                        system,[reference]))
+                    print('chrF = %f (precision = %f, recall = %f)' % chrF(
+                        reference,system))
 
                     # FIXME: save model if best score (by which measure?)
 
