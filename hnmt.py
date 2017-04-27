@@ -38,17 +38,17 @@ from search import beam_with_coverage
 from largetext import ShuffledText, HalfSortedIterator
 
 from bnas.model import Model, Linear, Embeddings, LSTMSequence
+try:
+    from bnas.model import ContextGateSequence
+except ImportError:
+    print('HNMT: can not import ContextGateSequence from BNAS, please upgrade'
+          ' if you want to use context gates',
+          file=sys.stderr, flush=True)
 from bnas.optimize import Adam, iterate_batches
 from bnas.init import Gaussian
 from bnas.utils import softmax_3d
 from bnas.loss import batch_sequence_crossentropy
 from bnas.fun import function
-
-#try:
-#    from efmaral import align_soft
-#except ImportError:
-#    print('efmaral is not available, will not be able to use attention loss',
-#          file=sys.stderr, flush=True)
 
 def combo_len(src_weight, tgt_weight, x_weight):
     def _combo_len(pair):
@@ -194,12 +194,13 @@ class NMT(Model):
             dropout=config['dropout'],
             layernorm=config['layernorm']))
 
-        self.add(Linear(
-            'proj_c0',
-            config['encoder_state_dims'],
-            config['decoder_state_dims'],
-            dropout=config['dropout'],
-            layernorm=config['layernorm']))
+        if config['decoder_gate'] == 'lstm':
+            self.add(Linear(
+                'proj_c0',
+                config['encoder_state_dims'],
+                config['decoder_state_dims'],
+                dropout=config['dropout'],
+                layernorm=config['layernorm']))
 
         # The total loss is
         #   lambda_o*xent(target sentence) + lambda_a*xent(alignment)
@@ -227,7 +228,10 @@ class NMT(Model):
                 dropout=config['recurrent_dropout'],
                 trainable_initial=True,
                 offset=0))
-        self.add(LSTMSequence(
+        decoder_class = ContextGateSequence \
+                if config['decoder_gate'] == 'context' \
+                else LSTMSequence
+        self.add(decoder_class(
             'decoder', False,
             config['trg_embedding_dims'],
             config['decoder_state_dims'],
@@ -323,7 +327,10 @@ class NMT(Model):
         # list of models in the ensemble
         models = [self] + others
         n_models = len(models)
-        n_states = 2
+        if self.config['decoder_gate'] == 'lstm':
+            n_states = 2
+        else:
+            n_states = 1
 
         # tuple (h_0, c_0, attended) for each model in the ensemble
         models_init = [m.encode_fun(inputs, inputs_mask, chars, chars_mask)
@@ -331,8 +338,8 @@ class NMT(Model):
 
         # precomputed sequences for attention, one for each model
         models_attended_dot_u = [
-                m.decoder.attention_u_fun()(attended)
-                for m, (_,_,attended) in zip(models, models_init)]
+                m.decoder.attention_u_fun()(model_init[-1])
+                for m, model_init in zip(models, models_init)]
 
         # output embeddings for each model
         models_embeddings = [
@@ -341,28 +348,41 @@ class NMT(Model):
 
 
         def step(i, states, outputs, outputs_mask, sent_indices):
-            models_result = [
-                    models[idx].decoder.step_fun()(
-                        models_embeddings[idx][outputs[-1]],
-                        states[idx*n_states+0],
-                        states[idx*n_states+1],
-                        models_init[idx][2][:,sent_indices,...],
-                        models_attended_dot_u[idx][:,sent_indices,...],
-                        inputs_mask[:,sent_indices])
-                    for idx in range(n_models)]
+            if self.config['decoder_gate'] == 'lstm':
+                models_result = [
+                        models[idx].decoder.step_fun()(
+                            models_embeddings[idx][outputs[-1]],
+                            states[idx*n_states+0],
+                            states[idx*n_states+1],
+                            models_init[idx][-1][:,sent_indices,...],
+                            models_attended_dot_u[idx][:,sent_indices,...],
+                            inputs_mask[:,sent_indices])
+                        for idx in range(n_models)]
+            else:
+                models_result = [
+                        models[idx].decoder.step_fun()(
+                            models_embeddings[idx][outputs[-1]],
+                            states[idx*n_states+0],
+                            models_init[idx][-1][:,sent_indices,...],
+                            models_attended_dot_u[idx][:,sent_indices,...],
+                            inputs_mask[:,sent_indices])
+                        for idx in range(n_models)]
             mean_attention = np.array(
-                    [models_result[idx][2] for idx in range(n_models)]
+                    [models_result[idx][-1] for idx in range(n_models)]
                  ).mean(axis=0)
             models_predict = np.array(
                     [models[idx].predict_fun(models_result[idx][0])
                      for idx in range(n_models)])
             dist = models_predict.mean(axis=0)
-            return ([x for result in models_result for x in result[:2]],
+            return ([x for result in models_result for x in result[:n_states]],
                     dist, mean_attention)
 
+        initial = [x for h_0, c_0, _ in models_init for x in [h_0, c_0]] \
+                if self.config['decoder_gate'] == 'lstm' \
+                else [x for h_0, _ in models_init for x in [h_0,]]
         result, i = beam_with_coverage(
                 step,
-                [x for h_0, c_0, _ in models_init for x in [h_0, c_0]],
+                initial,
                 models_init[0][0].shape[0],
                 self.config['trg_encoder']['<S>'],
                 self.config['trg_encoder']['</S>'],
@@ -438,19 +458,30 @@ class NMT(Model):
                 inputs_mask)
         # Initial states for decoder
         h_0 = T.tanh(self.proj_h0(back_h_seq[0]))
-        c_0 = T.tanh(self.proj_c0(back_c_seq[0]))
+        if self.config['decoder_gate'] == 'lstm':
+            c_0 = T.tanh(self.proj_c0(back_c_seq[0]))
         # Attention on concatenated forward/backward sequences
         attended = T.concatenate([fwd_h_seq, back_h_seq], axis=-1)
-        return h_0, c_0, attended
+        if self.config['decoder_gate'] == 'lstm':
+            return h_0, c_0, attended
+        else:
+            return h_0, attended
 
     def __call__(self, inputs, inputs_mask, chars, chars_mask,
                  outputs, outputs_mask):
         embedded_outputs = self.trg_embeddings(outputs)
-        h_0, c_0, attended = self.encode(
-                inputs, inputs_mask, chars, chars_mask)
-        h_seq, c_seq, attention_seq = self.decoder(
-                embedded_outputs, outputs_mask, h_0=h_0, c_0=c_0,
-                attended=attended, attention_mask=inputs_mask)
+        if self.config['decoder_gate'] == 'lstm':
+            h_0, c_0, attended = self.encode(
+                    inputs, inputs_mask, chars, chars_mask)
+            h_seq, c_seq, attention_seq = self.decoder(
+                    embedded_outputs, outputs_mask, h_0=h_0, c_0=c_0,
+                    attended=attended, attention_mask=inputs_mask)
+        else:
+            h_0, attended = self.encode(
+                    inputs, inputs_mask, chars, chars_mask)
+            h_seq, attention_seq = self.decoder(
+                    embedded_outputs, outputs_mask, h_0=h_0,
+                    attended=attended, attention_mask=inputs_mask)
         pred_seq = softmax_3d(self.emission(T.tanh(self.hidden(h_seq))))
 
         return pred_seq, attention_seq
@@ -536,6 +567,10 @@ def main():
     parser.add_argument('--output', type=str,
             metavar='FILE',
             help='name of file to write translated text to')
+    parser.add_argument('--decoder-gate', type=str,
+            choices=('lstm','context'),
+            metavar='FILE', default=argparse.SUPPRESS,
+            help='type of decoder gate ("lstm" or "context")')
     parser.add_argument('--heldout-source', type=str,
             metavar='FILE', default=argparse.SUPPRESS,
             help='name of test-set file (source language)')
@@ -711,6 +746,7 @@ def main():
             'train': None,
             #'source': None,
             #'target': None,
+            'decoder_gate': 'lstm',
             'heldout_source': None,
             'heldout_target': None,
             'beam_size': 8,
@@ -1306,24 +1342,9 @@ def main():
                      for sent in test_trg]
             test_links_maps = [(None, None, None)]*len(test_src)
             test_pairs = list(zip(test_src, test_trg, test_links_maps))
-
-            #train_src = src_sents
-            #train_trg = trg_sents
-            #train_links_maps = links_maps
         else:
             raise NotImplementedError(
                     'Heldout training sentences is no longer supported')
-            # reseparating "test" set from train set
-            #test_src = src_sents[:n_test_sents]
-            #test_trg = trg_sents[:n_test_sents]
-            #test_links_maps = links_maps[:n_test_sents]
-            #test_pairs = list(zip(test_src, test_trg, test_links_maps))
-
-            #train_src = src_sents[n_test_sents:]
-            #train_trg = trg_sents[n_test_sents:]
-            #train_links_maps = links_maps[n_test_sents:]
-
-        #train_pairs = list(zip(train_src, train_trg, train_links_maps))
 
         logf, evalf = None, None
         if args.log_file:
@@ -1380,12 +1401,6 @@ def main():
         while time() < end_time:
             # Sort by combined sequence length when grouping training instances
             # into batches.
-            #for batch_pairs in iterate_variable_batches(
-            #        train_pairs,
-            #        (100 + 600) * config['batch_budget'],
-            #        pair_length,
-            #        const_weight, src_weight, tgt_weight, x_weight, c_weight,
-            #        sort_size=int(16 * config['batch_budget'])):
             for train_sent_pairs in train_iter:
                 if logf and batch_nr % config['test_every'] == 0:
                     validate(test_pairs, start_time, optimizer, logf, sent_nr)
