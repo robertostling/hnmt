@@ -465,15 +465,31 @@ class NMT(Model):
                     axis=0))
 
 # TODO: make it possible to apply BPE here
-# For the moment, bpe tokenizer == space tokenizer
 
-def read_sents(filename, tokenizer, lower, backwards):
+def get_tokenizer(name, lowercase):
+    if name == 'char':
+        if lowercase:
+            return (lambda s: list(s.strip().lower()))
+        else:
+            return (lambda s: list(s.strip()))
+    elif (name == 'space') or (name == 'bpe'):
+        if lowercase:
+            return (lambda s: s.lower().split())
+        else:
+            return str.split
+    elif name == 'word':
+        if lowercase:
+            return (lambda s: word_tokenize(s.lower()))
+        else:
+            return word_tokenize
+    else:
+        raise ValueError('Unknown tokenizer: %s' % name)
+
+def read_sents(filename, tokenizer, backwards):
     def process(line):
         if backwards: line = line[::-1]
-        if lower: line = line.lower()
-        if tokenizer == 'char': return line.strip()
-        elif tokenizer == 'word': return word_tokenize(line)
-        return line.split()
+        return tokenizer(line)
+
     if filename.endswith('.gz'):
         def open_func(fname):
             return gzip.open(fname, 'rt', encoding='utf-8')
@@ -483,11 +499,11 @@ def read_sents(filename, tokenizer, lower, backwards):
     with open_func(filename) as f:
         return list(map(process, f))
     
-def detokenize(sent, tokenizer):
-    if tokenizer == 'bpe':
+def detokenize(sent, tokenizer_name):
+    if tokenizer_name == 'bpe':
         string = ' '.join(sent)
         return string.replace("@@ ", "")
-    return ('' if tokenizer == 'char' else ' ').join(sent)
+    return ('' if tokenizer_name == 'char' else ' ').join(sent)
 
 
 def main():
@@ -851,12 +867,10 @@ def main():
         if args.score:
             print('Load sentences for scoring ...', file=sys.stderr, flush=True)
             src_sents = read_sents(
-                    config['score_source'], config['source_tokenizer'],
-                    config['source_lowercase'] == 'yes',
+                    config['score_source'], tokenize_src,
                     config['backwards'] == 'yes')
             trg_sents = read_sents(
-                    config['score_target'], config['target_tokenizer'],
-                    config['target_lowercase'] == 'yes',
+                    config['score_target'], tokenize_trg,
                     config['backwards'] == 'yes')
 
             assert len(src_sents) == len(trg_sents)
@@ -902,25 +916,6 @@ def main():
             print('Scores written to %s, exiting...' % args.score,
                   file=sys.stderr, flush=True)
             return
-
-        def get_tokenizer(name, lowercase):
-            if name == 'char':
-                if lowercase:
-                    return (lambda s: list(s.strip().lower()))
-                else:
-                    return (lambda s: list(s.strip()))
-            elif name == 'space':
-                if lowercase:
-                    return (lambda s: s.lower().split())
-                else:
-                    return str.split
-            elif name == 'word':
-                if lowercase:
-                    return (lambda s: word_tokenize(s.lower()))
-                else:
-                    return word_tokenize
-            else:
-                raise ValueError('Unknown tokenizer: %s' % name)
 
         tokenize_src = get_tokenizer(
                 config['source_tokenizer'],
@@ -1065,8 +1060,7 @@ def main():
                 args.output, 'w', encoding='utf-8')
         sents = read_sents(
                 args.translate,
-                config['source_tokenizer'],
-                config['source_lowercase'] == 'yes',
+                tokenize_src,
                 config['backwards'] == 'yes')
 
         if args.reference: hypotheses = []
@@ -1088,8 +1082,7 @@ def main():
         # compute BLEU if reference file is given
         if args.reference:
             trg = read_sents(args.reference,
-                             config['target_tokenizer'],
-                             config['target_lowercase'] == 'yes',
+                             tokenize_trg,
                              config['backwards'] == 'yes')
 
             if config['target_tokenizer'] == 'char':
@@ -1122,12 +1115,10 @@ def main():
         if config['heldout_source'] and config['heldout_target']:
             print('Load test set ...', file=sys.stderr, flush=True)
             test_src = read_sents(
-                args.heldout_source, config['source_tokenizer'],
-                config['source_lowercase'] == 'yes',
+                args.heldout_source, tokenize_src,
                 config['backwards'] == 'yes')
             test_trg = read_sents(
-                args.heldout_target, config['target_tokenizer'],
-                config['target_lowercase'] == 'yes',
+                args.heldout_target, tokenize_trg,
                 config['backwards'] == 'yes')
             if len(test_src) > config['batch_size']:
                 print('reduce test set to batch size', file=sys.stderr, flush=True)
