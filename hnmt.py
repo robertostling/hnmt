@@ -487,8 +487,9 @@ def get_tokenizer(name, lowercase):
 
 def read_sents(filename, tokenizer, backwards):
     def process(line):
-        if backwards: line = line[::-1]
-        return tokenizer(line)
+        tokens = tokenizer(line)
+        if backwards: return tokens[::-1]
+        return tokens
 
     if filename.endswith('.gz'):
         def open_func(fname):
