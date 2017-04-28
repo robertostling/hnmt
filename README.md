@@ -129,3 +129,19 @@ Select the tokenizer among these options:
 
 TODO: support BPE as internal segmentation (apply_bpe to training data)
 
+## Log files
+
+During training, the `*.log` file reports the following information (in order, one column per item):
+* Seconds since start
+* Average cross-entropy per symbol
+* Attention cross-entropy (values are sensible only when using attention supervision)
+* Seconds used for test sentences
+* Number of processed batches
+* Number of processed sentences
+
+The `*.log.eval` file reports evaluation metrics on the heldout set (in order, one column per item):
+* Seconds since start
+* BLEU score
+* chrF score
+* Number of processed batches
+* Number of processed sentences
