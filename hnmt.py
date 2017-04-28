@@ -1259,7 +1259,6 @@ def main():
                 if batch_nr % config['translate_every'] == 0:
                     t0 = time()
                     test_dec = list(translate(translate_src, encode=False))
-                    print('test_dec before', test_dec)
                     for src, trg_raw, trg_dec in zip(
                             translate_src, translate_trg, test_dec):
                         print('   SOURCE / TARGET / OUTPUT')
