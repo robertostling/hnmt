@@ -31,7 +31,7 @@ def main():
 
     if args.tokenizer == 'char':
         tokenize = lambda s: list(s.strip())
-    elif args.tokenizer == 'space':
+    elif args.tokenizer == 'space' or args.tokenizer == 'bpe':
         tokenize = str.split
     elif args.tokenizer == 'word':
         import nltk
