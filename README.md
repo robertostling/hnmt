@@ -27,6 +27,9 @@ reduces memory consumption considerably.
   values should be roughly the same as before, and depends on model size and
   GPU RAM but not on sentence length. `--batch-size` is only used during
   translation.
+* You can use `--backwards yes` to train a model where all the input is
+  reversed (on the character level). Currently the output is kept reversed,
+  but this is subject to modification.
 
 ## Features
 
@@ -39,6 +42,7 @@ reduces memory consumption considerably.
   ([Sennrich et al. (2015)](https://arxiv.org/abs/1508.07909))
 * Variational dropout ([Gal 2015](http://arxiv.org/abs/1512.05287))
   and Layer Normalization ([Ba et al. 2016](https://arxiv.org/abs/1607.06450))
+* Context gates ([Tu et al. 2017](https://arxiv.org/pdf/1608.06043.pdf))
 
 ## Requirements
 
