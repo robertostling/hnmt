@@ -38,12 +38,6 @@ from search import beam_with_coverage
 from largetext import ShuffledText, HalfSortedIterator
 
 from bnas.model import Model, Linear, Embeddings, LSTMSequence
-try:
-    from bnas.model import ContextGateSequence
-except ImportError:
-    print('HNMT: can not import ContextGateSequence from BNAS, please upgrade'
-          ' if you want to use context gates',
-          file=sys.stderr, flush=True)
 from bnas.optimize import Adam, iterate_batches
 from bnas.init import Gaussian
 from bnas.utils import softmax_3d
@@ -154,7 +148,7 @@ class NMT(Model):
         super().__init__(name)
         self.config = config
 
-        pprint(config)
+        pprint(config, stream=sys.stderr)
         sys.stdout.flush()
 
         self.add(Embeddings(
@@ -194,13 +188,12 @@ class NMT(Model):
             dropout=config['dropout'],
             layernorm=config['layernorm']))
 
-        if config['decoder_gate'] == 'lstm':
-            self.add(Linear(
-                'proj_c0',
-                config['encoder_state_dims'],
-                config['decoder_state_dims'],
-                dropout=config['dropout'],
-                layernorm=config['layernorm']))
+        self.add(Linear(
+            'proj_c0',
+            config['encoder_state_dims'],
+            config['decoder_state_dims'],
+            dropout=config['dropout'],
+            layernorm=config['layernorm']))
 
         # The total loss is
         #   lambda_o*xent(target sentence) + lambda_a*xent(alignment)
@@ -228,10 +221,7 @@ class NMT(Model):
                 dropout=config['recurrent_dropout'],
                 trainable_initial=True,
                 offset=0))
-        decoder_class = ContextGateSequence \
-                if config['decoder_gate'] == 'context' \
-                else LSTMSequence
-        self.add(decoder_class(
+        self.add(LSTMSequence(
             'decoder', False,
             config['trg_embedding_dims'],
             config['decoder_state_dims'],
@@ -240,6 +230,7 @@ class NMT(Model):
             attention_dims=config['attention_dims'],
             attended_dims=2*config['encoder_state_dims'],
             trainable_initial=False,
+            contextgate=(config['decoder_gate'] == 'context'),
             offset=-1))
 
         h_t = T.matrix('h_t')
@@ -298,10 +289,7 @@ class NMT(Model):
         # list of models in the ensemble
         models = [self] + others
         n_models = len(models)
-        if self.config['decoder_gate'] == 'lstm':
-            n_states = 2
-        else:
-            n_states = 1
+        n_states = 2
 
         # tuple (h_0, c_0, attended) for each model in the ensemble
         models_init = [m.encode_fun(inputs, inputs_mask, chars, chars_mask)
@@ -319,25 +307,15 @@ class NMT(Model):
 
 
         def step(i, states, outputs, outputs_mask, sent_indices):
-            if self.config['decoder_gate'] == 'lstm':
-                models_result = [
-                        models[idx].decoder.step_fun()(
-                            models_embeddings[idx][outputs[-1]],
-                            states[idx*n_states+0],
-                            states[idx*n_states+1],
-                            models_init[idx][-1][:,sent_indices,...],
-                            models_attended_dot_u[idx][:,sent_indices,...],
-                            inputs_mask[:,sent_indices])
-                        for idx in range(n_models)]
-            else:
-                models_result = [
-                        models[idx].decoder.step_fun()(
-                            models_embeddings[idx][outputs[-1]],
-                            states[idx*n_states+0],
-                            models_init[idx][-1][:,sent_indices,...],
-                            models_attended_dot_u[idx][:,sent_indices,...],
-                            inputs_mask[:,sent_indices])
-                        for idx in range(n_models)]
+            models_result = [
+                    models[idx].decoder.step_fun()(
+                        models_embeddings[idx][outputs[-1]],
+                        states[idx*n_states+0],
+                        states[idx*n_states+1],
+                        models_init[idx][-1][:,sent_indices,...],
+                        models_attended_dot_u[idx][:,sent_indices,...],
+                        inputs_mask[:,sent_indices])
+                    for idx in range(n_models)]
             mean_attention = np.array(
                     [models_result[idx][-1] for idx in range(n_models)]
                  ).mean(axis=0)
@@ -348,9 +326,7 @@ class NMT(Model):
             return ([x for result in models_result for x in result[:n_states]],
                     dist, mean_attention)
 
-        initial = [x for h_0, c_0, _ in models_init for x in [h_0, c_0]] \
-                if self.config['decoder_gate'] == 'lstm' \
-                else [x for h_0, _ in models_init for x in [h_0,]]
+        initial = [x for h_0, c_0, _ in models_init for x in [h_0, c_0]]
         result, i = beam_with_coverage(
                 step,
                 initial,
@@ -421,30 +397,19 @@ class NMT(Model):
                 inputs_mask)
         # Initial states for decoder
         h_0 = T.tanh(self.proj_h0(back_h_seq[0]))
-        if self.config['decoder_gate'] == 'lstm':
-            c_0 = T.tanh(self.proj_c0(back_c_seq[0]))
+        c_0 = T.tanh(self.proj_c0(back_c_seq[0]))
         # Attention on concatenated forward/backward sequences
         attended = T.concatenate([fwd_h_seq, back_h_seq], axis=-1)
-        if self.config['decoder_gate'] == 'lstm':
-            return h_0, c_0, attended
-        else:
-            return h_0, attended
+        return h_0, c_0, attended
 
     def __call__(self, inputs, inputs_mask, chars, chars_mask,
                  outputs, outputs_mask):
         embedded_outputs = self.trg_embeddings(outputs)
-        if self.config['decoder_gate'] == 'lstm':
-            h_0, c_0, attended = self.encode(
-                    inputs, inputs_mask, chars, chars_mask)
-            h_seq, c_seq, attention_seq = self.decoder(
-                    embedded_outputs, outputs_mask, h_0=h_0, c_0=c_0,
-                    attended=attended, attention_mask=inputs_mask)
-        else:
-            h_0, attended = self.encode(
-                    inputs, inputs_mask, chars, chars_mask)
-            h_seq, attention_seq = self.decoder(
-                    embedded_outputs, outputs_mask, h_0=h_0,
-                    attended=attended, attention_mask=inputs_mask)
+        h_0, c_0, attended = self.encode(
+                inputs, inputs_mask, chars, chars_mask)
+        h_seq, c_seq, attention_seq = self.decoder(
+                embedded_outputs, outputs_mask, h_0=h_0, c_0=c_0,
+                attended=attended, attention_mask=inputs_mask)
         pred_seq = softmax_3d(self.emission(T.tanh(self.hidden(h_seq))))
 
         return pred_seq, attention_seq
@@ -536,7 +501,7 @@ def main():
             help='ensemble models by averaging parameters (DEPRECATED)')
     parser.add_argument('--backwards', type=str, choices=('yes','no'),
                         default=argparse.SUPPRESS,
-            help='reverse the order (on character level) of all input data')
+            help='reverse the order (on token level) of all input data')
     parser.add_argument('--translate', type=str,
             metavar='FILE',
             help='name of file to translate')
@@ -638,12 +603,6 @@ def main():
                  'make_encoder.py). This should not be combined with '
                  '--load-model, since that already loads the vocabulary '
                  'stored in the model file')
-    parser.add_argument('--source-vocabulary', type=int, default=10000,
-            metavar='N',
-            help='maximum size of source vocabulary')
-    parser.add_argument('--target-vocabulary', type=int, default=None,
-            metavar='N',
-            help='maximum size of target vocabulary')
     parser.add_argument('--min-char-count', type=int,
             metavar='N',
             help='drop all characters with count < N in training data')
@@ -776,6 +735,8 @@ def main():
         model = models[0]
         config = configs[0]
         # allow loading old models without these parameters
+        if config['decoder_gate'] == 'lstm-context':
+            config['decoder_gate'] = 'context'
         if 'backwards' not in config:
             config['backwards'] = 'no'
         if 'alpha' not in config:
@@ -853,8 +814,8 @@ def main():
                 if not args.load_submodel:
                     optimizer.load(f)
             if not args.score:
-                print('Continuing training from update %d...'%optimizer.n_updates,
-                      flush=True)
+                print('Continuing training from update %d...' % optimizer.n_updates,
+                      file=sys.stderr, flush=True)
             for option in overridable_options:
                 if option in args_vars: config[option] = args_vars[option]
 
@@ -1199,9 +1160,6 @@ def main():
                 if logf and batch_nr % config['test_every'] == 0:
                     validate(test_pairs, start_time, optimizer, logf, sent_nr)
 
-                print('Training batch size: %d' % len(train_sent_pairs),
-                      flush=True)
-
                 if config['backwards'] == 'yes':
                     train_sent_pairs = [
                             (src_sent[::-1], trg_sent[::-1])
@@ -1242,7 +1200,8 @@ def main():
 
                 if config['save_every'] > 0 and batch_nr % config['save_every'] == 0:
                     filename = '%s.%d' % (args.save_model, optimizer.n_updates)
-                    print('Writing model to %s...' % filename, flush=True)
+                    print('Writing model to %s...' % filename,
+                            file=sys.stderr, flush=True)
                     with open(filename, 'wb') as f:
                         pickle.dump(config, f)
                         model.save(f)
@@ -1313,7 +1272,8 @@ def main():
 
         if logf: logf.close()
         if evalf: evalf.close()
-        print('Training finished, saving final model', flush=True)
+        print('Training finished, saving final model',
+                file=sys.stderr, flush=True)
 
         with open(args.save_model + '.final', 'wb') as f:
             pickle.dump(config, f)
