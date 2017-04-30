@@ -836,10 +836,10 @@ def main():
         if args.score:
             print('Load sentences for scoring ...', file=sys.stderr, flush=True)
             src_sents = read_sents(
-                    config['score_source'], tokenize_src,
+                    args.score_source, tokenize_src,
                     config['backwards'] == 'yes')
             trg_sents = read_sents(
-                    config['score_target'], tokenize_trg,
+                    args.score_target, tokenize_trg,
                     config['backwards'] == 'yes')
 
             assert len(src_sents) == len(trg_sents)
@@ -882,7 +882,8 @@ def main():
                     #                 log_p[:,None]]))
                     for x in score:
                         print(x, file=outf, flush=True)
-            print('Scores written to %s, exiting...' % args.score,
+                    print('.'*len(score), file=sys.stderr, flush=True)
+            print('\nScores written to %s, exiting...' % args.score,
                   file=sys.stderr, flush=True)
             return
 
