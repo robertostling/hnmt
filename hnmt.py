@@ -553,6 +553,14 @@ def main():
     parser.add_argument('--train', type=str, default=argparse.SUPPRESS,
             metavar='FILE',
             help='name of training data file (with source ||| target pairs)')
+    parser.add_argument('--score-repeat-source', type=int, default=1,
+            metavar='N',
+            help='number of repetitions for each source sentence '
+                 '(convenience function for n-best reranking)')
+    parser.add_argument('--score-repeat-target', type=int, default=1,
+            metavar='N',
+            help='number of repetitions for each target sentence '
+                 '(convenience function for n-best reranking)')
     parser.add_argument('--score-source', type=str, default=argparse.SUPPRESS,
             metavar='FILE',
             help='name of source language file for sentence scoring')
@@ -841,6 +849,11 @@ def main():
             trg_sents = read_sents(
                     args.score_target, tokenize_trg,
                     config['backwards'] == 'yes')
+
+            src_sents = [sent for sent in src_sents
+                              for _ in range(args.score_repeat_source)]
+            trg_sents = [sent for sent in trg_sents
+                              for _ in range(args.score_repeat_target)]
 
             assert len(src_sents) == len(trg_sents)
             with open(args.score, 'w') as outf:
