@@ -826,6 +826,13 @@ def main():
             for option, default in overridable_options.items():
                 config[option] = args_vars.get(option, default)
 
+        tokenize_src = get_tokenizer(
+                config['source_tokenizer'],
+                config['source_lowercase'] == 'yes')
+        tokenize_trg = get_tokenizer(
+                config['target_tokenizer'],
+                config['target_lowercase'] == 'yes')
+
         if args.score:
             print('Load sentences for scoring ...', file=sys.stderr, flush=True)
             src_sents = read_sents(
@@ -878,13 +885,6 @@ def main():
             print('Scores written to %s, exiting...' % args.score,
                   file=sys.stderr, flush=True)
             return
-
-        tokenize_src = get_tokenizer(
-                config['source_tokenizer'],
-                config['source_lowercase'] == 'yes')
-        tokenize_trg = get_tokenizer(
-                config['target_tokenizer'],
-                config['target_lowercase'] == 'yes')
 
         def tokenize_src_trg(s):
             src, trg = s.split(' ||| ')
@@ -980,6 +980,13 @@ def main():
                     ## TODO: should check that the submodel config is compatible with model config
                     submodel_config = pickle.load(f)
                     getattr(model,modelname).load(f)
+
+    tokenize_src = get_tokenizer(
+            config['source_tokenizer'],
+            config['source_lowercase'] == 'yes')
+    tokenize_trg = get_tokenizer(
+            config['target_tokenizer'],
+            config['target_lowercase'] == 'yes')
 
     # By this point a model has been created or loaded, so we can define a
     # convenience function to perform translation.
