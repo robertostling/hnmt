@@ -904,20 +904,6 @@ def main():
             src, trg = s.split(' ||| ')
             return tokenize_src(src), tokenize_trg(trg)
 
-        src_trg_f = open(config['train'], 'rb')
-        src_trg_st = ShuffledText(
-                src_trg_f,
-                # Using the defaults should be OK, but these settings could
-                # reduce memory further:
-                #block_size=0x1000,
-                #max_blocks=64,
-                seed=args.random_seed)
-        train_iter = HalfSortedIterator(
-                iter(src_trg_st),
-                max_area=config['batch_budget']*0x200,
-                preprocess=tokenize_src_trg,
-                length=lambda pair: sum(map(len, pair)))
-
         if not args.load_model:
             # Source encoder is a hybrid, with a character-based encoder for
             # rare words and a word-level decoder for the rest.
@@ -1177,9 +1163,24 @@ def main():
         translate_trg = test_trg_unencoded
         #translate_trg = test_trg[:config['batch_size']]
 
+        src_trg_f = open(config['train'], 'rb')
+        src_trg_st = ShuffledText(
+                src_trg_f,
+                # Using the defaults should be OK, but these settings could
+                # reduce memory further:
+                #block_size=0x1000,
+                #max_blocks=64,
+                seed=args.random_seed)
+
         chrf_max = 0.0
         bleu_max = 0.0
         while time() < end_time:
+            train_iter = HalfSortedIterator(
+                    iter(src_trg_st),
+                    max_area=config['batch_budget']*0x200,
+                    preprocess=tokenize_src_trg,
+                    length=lambda pair: sum(map(len, pair)))
+
             # Sort by combined sequence length when grouping training instances
             # into batches.
             for train_sent_pairs in train_iter:
