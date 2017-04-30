@@ -1004,7 +1004,7 @@ def main():
 
     # By this point a model has been created or loaded, so we can define a
     # convenience function to perform translation.
-    def translate(sents, encode=False, nbest=0):
+    def translate(sents, encode=False, nbest=0, backwards=False):
         for i in range(0, len(sents), config['batch_size']):
             batch_sents = sents[i:i+config['batch_size']]
             if encode:
@@ -1025,8 +1025,9 @@ def main():
                 lines = []
                 for best in list(beam)[:max(1, nbest)]:
                     encoded = Encoded(best.history + (best.last_sym,), None)
+                    decoded = config['trg_encoder'].decode_sentence(encoded)
                     hypothesis = detokenize(
-                        config['trg_encoder'].decode_sentence(encoded),
+                        decoded[::-1] if backwards else decoded,
                         config['target_tokenizer'])
                     if nbest > 0:
                         lines.append(' ||| '.join((
@@ -1050,7 +1051,8 @@ def main():
         if args.nbest_list: nbest = args.nbest_list
         else: nbest = 0
         for i,sent in enumerate(translate(
-                sents, encode=True, nbest=nbest)):
+                sents, encode=True, nbest=nbest,
+                backwards=(config['backwards'] == 'yes'))):
             print('.', file=sys.stderr, flush=True, end='')
             print(sent, file=outf, flush=True)
             if args.reference:
@@ -1064,9 +1066,12 @@ def main():
 
         # compute BLEU if reference file is given
         if args.reference:
+            # Now the translation is flipped, so the reference should not be
+            # flipped
             trg = read_sents(args.reference,
                              tokenize_trg,
-                             config['backwards'] == 'yes')
+                             False)
+                             #config['backwards'] == 'yes')
 
             if config['target_tokenizer'] == 'char':
                 system = [detokenize(wordpunct_tokenize(s),'space')
