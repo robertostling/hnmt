@@ -743,6 +743,8 @@ def main():
         model = models[0]
         config = configs[0]
         # allow loading old models without these parameters
+        if 'decoder_gate' not in config:
+            config['decoder_gate'] = 'lstm'
         if config['decoder_gate'] == 'lstm-context':
             config['decoder_gate'] = 'context'
         if 'backwards' not in config:
@@ -788,6 +790,8 @@ def main():
                 # allow loading old models without these parameters
                 if 'alignment_decay' not in config:
                     config['alignment_decay'] = 0.9995
+                if 'decoder_gate' not in config:
+                    config['decoder_gate'] = 'lstm'
                 if 'backwards' not in config:
                     config['backwards'] = 'no'
                 if 'alpha' not in config:
@@ -1089,10 +1093,10 @@ def main():
         if config['heldout_source'] and config['heldout_target']:
             print('Load test set ...', file=sys.stderr, flush=True)
             test_src = read_sents(
-                args.heldout_source, tokenize_src,
+                config['heldout_source'], tokenize_src,
                 config['backwards'] == 'yes')
             test_trg = read_sents(
-                args.heldout_target, tokenize_trg,
+                config['heldout_target'], tokenize_trg,
                 config['backwards'] == 'yes')
             if len(test_src) > config['batch_size']:
                 print('reduce test set to batch size', file=sys.stderr, flush=True)
