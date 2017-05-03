@@ -1184,6 +1184,16 @@ def main():
             # Sort by combined sequence length when grouping training instances
             # into batches.
             for train_sent_pairs in train_iter:
+                if len(train_sent_pairs) < 3:
+                    # Reject very small batches
+                    continue
+
+                max_sent_len = max(max(len(src_sent), len(trg_sent))
+                                   for src_sent, trg_sent in train_sent_pairs)
+                if max_sent_len > 800:
+                    # Reject very long sentences
+                    continue
+
                 if logf and batch_nr % config['test_every'] == 0:
                     validate(test_pairs, start_time, optimizer, logf, sent_nr)
 
