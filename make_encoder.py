@@ -13,8 +13,10 @@ def main():
             description='Vocabulary creation tool')
     parser.add_argument('--hybrid', action='store_true',
             help='Create a hybrid word/character vocabulary')
-    parser.add_argument('--vocabulary', type=int, default=10000,
+    parser.add_argument('--vocabulary', type=int, default=50000,
             help='Size of word vocabulary')
+    parser.add_argument('--char-vocabulary', type=int, default=200,
+            help='Maximum size of character vocabulary')
     parser.add_argument('--lowercase', action='store_true',
             help='Lower-case all data')
     parser.add_argument('--output', type=str, metavar='FILE', required=True,
@@ -59,6 +61,7 @@ def main():
         char_encoder = TextEncoder(
                 counts=char_count,
                 min_count=args.min_char_count,
+                max_vocab=args.char_vocabulary,
                 special=())
         encoder = TextEncoder(
                 counts=token_count,
