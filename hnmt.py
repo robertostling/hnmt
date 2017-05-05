@@ -448,7 +448,7 @@ def get_tokenizer(name, lowercase):
         else:
             return word_tokenize
     else:
-        raise ValueError('Unknown tokenizer: %s' % name)
+        raise ValueError('Unknown tokenizer: "%s"' % name)
 
 def read_sents(filename, tokenizer, backwards, nbest=False):
     def process(line):
@@ -562,6 +562,8 @@ def main():
     parser.add_argument('--score-target', type=str, default=argparse.SUPPRESS,
             metavar='FILE',
             help='name of target language test file for sentence scoring')
+    parser.add_argument('--evaluate', action='store_true',
+            help='perform evaluation (using --score-target and --reference)')
     parser.add_argument('--rerank', action='store_true',
             help='file specified by --score-target was produced '
                  'by --nbest-list, and should be rescored by this model '
@@ -692,6 +694,66 @@ def main():
             'beta': 0.4,
             'gamma': 1.0,
             'len_smooth': 5.0,}
+
+    if args.evaluate:
+        use_nbest = args.rerank
+
+        target_tokenizer = args.target_tokenizer
+        target_lowercase = args.target_lowercase
+        tokenize_trg = get_tokenizer(
+                target_tokenizer,
+                target_lowercase == 'yes')
+
+        trg_sents = read_sents(args.score_target, tokenize_trg, False,
+                               nbest=use_nbest)
+        trg = read_sents(args.reference, tokenize_trg, False)
+        if use_nbest:
+            best_trg_sents = [None]*len(trg)
+            trg_sents_raw = [None]*len(trg)
+            best_trg_score = [float('-inf')]*len(trg)
+            with open(args.score_target, 'r', encoding='utf-8') as f:
+                for i, line in enumerate(f):
+                    idx, raw, score = line.rstrip('\n').split(' ||| ')
+                    idx = int(idx)
+                    score = float(score)
+                    if score > best_trg_score[idx]:
+                        best_trg_score[idx] = score
+                        best_trg_sents[idx] = trg_sents[i]
+                        trg_sents_raw[idx] = raw
+            trg_sents = best_trg_sents
+            assert all(sent is not None for sent in trg_sents)
+        else:
+            with open(args.score_target, 'r', encoding='utf-8') as f:
+                trg_sents_raw = [line.strip() for line in f]
+        with open(args.reference, 'r', encoding='utf-8') as f:
+            trg_raw = [line.strip() for line in f]
+
+        if args.output:
+            with open(args.output, 'w', encoding='utf-8') as f:
+                for raw in trg_sents_raw:
+                    print(raw, file=f)
+
+        if target_tokenizer == 'char':
+            system = [
+                detokenize(word_tokenize(
+                    detokenize(s, 'char')),'space')
+                for s in trg_sents]
+            reference = [
+                detokenize(word_tokenize(
+                    detokenize(s, 'char')), 'space')
+                for s in trg]
+        else:
+            reference = [detokenize(s, target_tokenizer) for s in trg]
+            system = trg_sents
+
+        #pprint(system)
+        bleu_result = BLEU(system,[reference])
+        chrf_result = chrF(trg_raw,trg_sents_raw)
+        print('BLEU = %.3f (%.3f, %.3f, %.3f, %.3f, BP = %.3f, N=%d)' %
+                (bleu_result + (len(reference),)))
+        print('chrF = %.3f (precision = %.3f, recall = %.3f)' %
+                chrf_result)
+        return
 
     # read and use byte-pair encodings
     # TODO: the option doesn't work yet (change read_sents)
