@@ -450,8 +450,11 @@ def get_tokenizer(name, lowercase):
     else:
         raise ValueError('Unknown tokenizer: %s' % name)
 
-def read_sents(filename, tokenizer, backwards):
+def read_sents(filename, tokenizer, backwards, nbest=False):
     def process(line):
+        if nbest:
+            nr, text, score = line.split(' ||| ')
+            line = text
         tokens = tokenizer(line)
         if backwards: return tokens[::-1]
         return tokens
@@ -553,31 +556,23 @@ def main():
     parser.add_argument('--train', type=str, default=argparse.SUPPRESS,
             metavar='FILE',
             help='name of training data file (with source ||| target pairs)')
-    parser.add_argument('--score-repeat-source', type=int, default=1,
-            metavar='N',
-            help='number of repetitions for each source sentence '
-                 '(convenience function for n-best reranking)')
-    parser.add_argument('--score-repeat-target', type=int, default=1,
-            metavar='N',
-            help='number of repetitions for each target sentence '
-                 '(convenience function for n-best reranking)')
     parser.add_argument('--score-source', type=str, default=argparse.SUPPRESS,
             metavar='FILE',
             help='name of source language file for sentence scoring')
     parser.add_argument('--score-target', type=str, default=argparse.SUPPRESS,
             metavar='FILE',
             help='name of target language test file for sentence scoring')
+    parser.add_argument('--rerank', action='store_true',
+            help='file specified by --score-target was produced '
+                 'by --nbest-list, and should be rescored by this model '
+                 '(note that this changes the output format of the file '
+                 'specified by --score)')
     parser.add_argument('--source-tokenizer', type=str,
             choices=('word', 'space', 'char', 'bpe'), default=argparse.SUPPRESS,
             help='type of preprocessing for source text')
     parser.add_argument('--target-tokenizer', type=str,
             choices=('word', 'space', 'char', 'bpe'), default=argparse.SUPPRESS,
             help='type of preprocessing for target text')
-    #parser.add_argument('--max-source-length', type=int,
-    #        metavar='N',
-    #        default=argparse.SUPPRESS,
-    #        help='maximum length of source sentence '
-    #             '(unit given by --source-tokenizer)')
     parser.add_argument('--max-target-length', type=int, default=1000,
             metavar='N',
             help='maximum length of target sentence during translation '
@@ -668,7 +663,9 @@ def main():
     parser.add_argument('--score', type=str,
             metavar='FILE',
             help='score the sentence pairs defined by --test-target and '
-                 '--test-source and write scores to this file')
+                 '--test-source and write scores to this file. The format of '
+                 'this file is the same as that of --nbest-list if the '
+                 '--rerank option is used, otherwise a plain list of scores')
 
     args = parser.parse_args()
     args_vars = vars(args)
@@ -711,7 +708,7 @@ def main():
         trgbpe_codes = BPE(args.source_bpe_codes)
         trgbpe = True
 
-    if args.translate:
+    if args.translate or args.score:
         models = []
         configs = []
         if ':' in args.load_model:
@@ -845,65 +842,6 @@ def main():
                 config['target_tokenizer'],
                 config['target_lowercase'] == 'yes')
 
-        if args.score:
-            print('Load sentences for scoring ...', file=sys.stderr, flush=True)
-            src_sents = read_sents(
-                    args.score_source, tokenize_src,
-                    config['backwards'] == 'yes')
-            trg_sents = read_sents(
-                    args.score_target, tokenize_trg,
-                    config['backwards'] == 'yes')
-
-            src_sents = [sent for sent in src_sents
-                              for _ in range(args.score_repeat_source)]
-            trg_sents = [sent for sent in trg_sents
-                              for _ in range(args.score_repeat_target)]
-
-            assert len(src_sents) == len(trg_sents)
-            with open(args.score, 'w') as outf:
-                for i in range(0, len(src_sents), config['batch_size']):
-                    src_batch = [
-                            config['src_encoder'].encode_sequence(sent)
-                            for sent in src_sents[i:i+config['batch_size']]]
-                    trg_batch = [
-                            config['trg_encoder'].encode_sequence(sent)
-                            for sent in trg_sents[i:i+config['batch_size']]]
-                    x = config['src_encoder'].pad_sequences(src_batch)
-                    y = config['trg_encoder'].pad_sequences(trg_batch)
-                    y = y + (np.ones(y[0].shape + (x[0].shape[0],),
-                                        dtype=theano.config.floatX),)
-                    test_inputs, test_inputs_mask, _, _ = x
-                    test_outputs, test_outputs_mask, test_attention = y
-                    pred_y, pred_attention = model.pred_fun(*(x + y[:-1]))
-                    idx1, idx2 = np.indices(test_outputs[1:].shape)
-                    p_y = pred_y[idx1, idx2, test_outputs[1:]] + \
-                            (1 - test_outputs_mask[1:])
-                    # Length of each sentence
-                    len_y = test_outputs_mask.sum(0) - 2
-                    # Log-probability per sentence
-                    log_p = (np.log(p_y) * test_outputs_mask[1:]).sum(0)
-                    # Length penalty of each sentence
-                    lp = np.power((config['len_smooth'] + len_y) /
-                                    (1.0 + config['len_smooth']),
-                                  config['alpha'])
-                    # Coverage penalty
-                    attention_trg_sum = (
-                            test_outputs_mask[1:][...,None] *
-                            pred_attention).sum(0)
-                    cp = ((np.log((1 - test_inputs_mask.T) +
-                                  np.minimum(attention_trg_sum, 1.0))
-                            * test_inputs_mask.T).sum(1)
-                            * config['beta'])
-                    score = cp + (log_p / lp)
-                    #print(np.hstack([score[:,None], cp[:,None], lp[:,None],
-                    #                 log_p[:,None]]))
-                    for x in score:
-                        print(x, file=outf, flush=True)
-                    print('.'*len(score), file=sys.stderr, flush=True)
-            print('\nScores written to %s, exiting...' % args.score,
-                  file=sys.stderr, flush=True)
-            return
-
         def tokenize_src_trg(s):
             src, trg = s.split(' ||| ')
             return tokenize_src(src), tokenize_trg(trg)
@@ -1028,7 +966,91 @@ def main():
                 if lines:
                     yield '\n'.join(lines)
 
-    if args.translate:
+    if args.score:
+        print('Load sentences for scoring ...', file=sys.stderr, flush=True)
+        src_sents = read_sents(
+                args.score_source, tokenize_src,
+                config['backwards'] == 'yes')
+        trg_sents = read_sents(
+                args.score_target, tokenize_trg,
+                config['backwards'] == 'yes',
+                nbest=args.rerank)
+        if args.rerank:
+            with open(args.score_target, 'r', encoding='utf-8') as f:
+                lines = [line.rstrip('\n').split(' ||| ') for line in f]
+            assert all(len(line) == 3 for line in lines)
+            trg_sents_raw = [sent for _,sent,_ in lines]
+            trg_scores = [float(score) for _,_,score in lines]
+            trg_indexes = [int(idx) for idx,_,_ in lines]
+            assert all(idx < len(src_sents) for idx in trg_indexes)
+            src_sents = [src_sents[idx] for idx in trg_indexes]
+
+        assert len(src_sents) == len(trg_sents)
+        with open(args.score, 'w') as outf:
+            for i in range(0, len(src_sents), config['batch_size']):
+                src_batch = [
+                        config['src_encoder'].encode_sequence(sent)
+                        for sent in src_sents[i:i+config['batch_size']]]
+                trg_batch = [
+                        config['trg_encoder'].encode_sequence(sent)
+                        for sent in trg_sents[i:i+config['batch_size']]]
+                x = config['src_encoder'].pad_sequences(src_batch)
+                y = config['trg_encoder'].pad_sequences(trg_batch)
+                y = y + (np.ones(y[0].shape + (x[0].shape[0],),
+                                    dtype=theano.config.floatX),)
+                test_inputs, test_inputs_mask, _, _ = x
+                test_outputs, test_outputs_mask, test_attention = y
+
+                # Make predictions from ensemble
+                pred_y, pred_attention = None, None
+                for m in models:
+                    pred_y_, pred_attention_ = model.pred_fun(*(x + y[:-1]))
+                    if pred_y is None:
+                        pred_y = pred_y_
+                        pred_attention = pred_attention_
+                    else:
+                        pred_y += pred_y_
+                        pred_attention += pred_attention_
+                pred_y /= len(models)
+                pred_attention /= len(models)
+
+                idx1, idx2 = np.indices(test_outputs[1:].shape)
+                p_y = pred_y[idx1, idx2, test_outputs[1:]] + \
+                        (1 - test_outputs_mask[1:])
+                # Length of each sentence
+                len_y = test_outputs_mask.sum(0) - 2
+                # Log-probability per sentence
+                log_p = (np.log(p_y) * test_outputs_mask[1:]).sum(0)
+                # Length penalty of each sentence
+                lp = np.power((config['len_smooth'] + len_y) /
+                                (1.0 + config['len_smooth']),
+                              config['alpha'])
+                # Coverage penalty
+                attention_trg_sum = (
+                        test_outputs_mask[1:][...,None] *
+                        pred_attention).sum(0)
+                cp = ((np.log((1 - test_inputs_mask.T) +
+                              np.minimum(attention_trg_sum, 1.0))
+                        * test_inputs_mask.T).sum(1)
+                        * config['beta'])
+                score = cp + (log_p / lp)
+                #print(np.hstack([score[:,None], cp[:,None], lp[:,None],
+                #                 log_p[:,None]]))
+                if args.rerank:
+                    for j,x in enumerate(score):
+                        print(' ||| '.join((
+                                str(trg_indexes[i+j]),
+                                trg_sents_raw[i+j],
+                                str(x+trg_scores[i+j]))),
+                            file=outf, flush=True)
+                else:
+                    for x in score:
+                        print(x, file=outf, flush=True)
+                print('.'*len(score), file=sys.stderr, flush=True)
+        print('\nScores written to %s, exiting...' % args.score,
+              file=sys.stderr, flush=True)
+        return
+    elif args.translate:
         print('Translating...', file=sys.stderr, flush=True, end='')
         outf = sys.stdout if args.output is None else open(
                 args.output, 'w', encoding='utf-8')
