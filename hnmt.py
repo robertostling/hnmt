@@ -20,7 +20,7 @@ from hnmt.chrF import chrF
 from hnmt.bpe import BPE
 
 try:
-    from nltk import word_tokenize, wordpunct_tokenize
+    from nltk import word_tokenize
 except ImportError:
     print('HNMT: WARNING: NLTK not installed, will not be able to use '
           'internal tokenizer', file=sys.stderr, flush=True)
@@ -746,12 +746,11 @@ def main():
             reference = [detokenize(s, target_tokenizer) for s in trg]
             system = trg_sents
 
-        #pprint(system)
         bleu_result = BLEU(system,[reference])
         chrf_result = chrF(trg_raw,trg_sents_raw)
-        print('BLEU = %.3f (%.3f, %.3f, %.3f, %.3f, BP = %.3f, N=%d)' %
+        print('BLEU = %.4f (%.3f, %.3f, %.3f, %.3f, BP = %.3f, N=%d)' %
                 (bleu_result + (len(reference),)))
-        print('chrF = %.3f (precision = %.3f, recall = %.3f)' %
+        print('chrF = %.4f (precision = %.3f, recall = %.3f)' %
                 chrf_result)
         return
 
@@ -1148,7 +1147,7 @@ def main():
                              #config['backwards'] == 'yes')
 
             if config['target_tokenizer'] == 'char':
-                system = [detokenize(wordpunct_tokenize(s),'space')
+                system = [detokenize(word_tokenize(s),'space')
                           for s in hypotheses]
                 reference = [detokenize(
                                 word_tokenize(detokenize(s,'char')), 'space')
@@ -1348,10 +1347,10 @@ def main():
                           flush=True)
 
                     if config['target_tokenizer'] == 'char':
-                        system = [detokenize(wordpunct_tokenize(s),'space')
+                        system = [detokenize(word_tokenize(s),'space')
                                   for s in test_dec]
                         reference = [
-                            detokenize(wordpunct_tokenize(
+                            detokenize(word_tokenize(
                                 detokenize(s, 'char')),
                                 'space')
                             for s in translate_trg]
