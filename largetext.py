@@ -162,6 +162,13 @@ class HalfSortedIterator:
                     raise StopIteration
 
             tos = self.buf[-1]
+
+            # Avoid infinite loops in case of lines that can't fit in
+            # 2*max_area
+            if self.max_area and 2*self.length(tos) >= self.max_area:
+                self.buf.pop()
+                continue
+
             if self.max_area:
                 size = max(largest, self.length(tos)) * (len(batch)+1)
                 full = size > self.max_area

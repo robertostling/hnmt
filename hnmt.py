@@ -1271,8 +1271,8 @@ def main():
             # Sort by combined sequence length when grouping training instances
             # into batches.
             for train_sent_pairs in train_iter:
-                if len(train_sent_pairs) < 3:
-                    # Reject very small batches
+                if len(train_sent_pairs) < 1:
+                    # Reject empty batches (should not happen)
                     continue
 
                 max_sent_len = max(max(len(src_sent), len(trg_sent))
