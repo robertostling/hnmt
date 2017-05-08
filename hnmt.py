@@ -500,6 +500,9 @@ def main():
     parser.add_argument('--split-model', type=str,
             metavar='FILE',
             help='split an existing model into separate files for each submodule')
+    parser.add_argument('--reset-optimizer', action='store_true',
+            help='reset the optimizer state when resuming training (use with '
+                 '--load-model)')
     parser.add_argument('--ensemble-average', action='store_true',
             help='ensemble models by averaging parameters (DEPRECATED)')
     parser.add_argument('--backwards', type=str, choices=('yes','no'),
@@ -743,8 +746,14 @@ def main():
                     detokenize(s, 'char')), 'space')
                 for s in trg]
         else:
-            reference = [detokenize(s, target_tokenizer) for s in trg]
-            system = trg_sents
+            reference = [
+                detokenize(word_tokenize(
+                    detokenize(s, target_tokenizer)), 'space')
+                for s in trg]
+            system = [detokenize(s, target_tokenizer) for s in trg_sents]
+
+        pprint(reference[:2])
+        pprint(system[:2])
 
         bleu_result = BLEU(system,[reference])
         chrf_result = chrF(trg_raw,trg_sents_raw)
@@ -881,7 +890,7 @@ def main():
                 if args.learning_rate:
                     optimizer.learning_rate = args.learning_rate
                 ## load optimizer states unless there are submodels to be loaded later
-                if not args.load_submodel:
+                if not (args.load_submodel or args.reset_optimizer):
                     optimizer.load(f)
             if not args.score:
                 print('Continuing training from update %d...' % optimizer.n_updates,
