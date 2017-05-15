@@ -101,10 +101,14 @@ class TextEncoder(object):
                 if x not in (start, stop)]
 
     def pad_sequences(self, encoded_sequences,
-                      max_length=None, pad_right=True, dtype=np.int32):
+                      max_length=None, pad_right=True,
+                      fake_hybrid=False,
+                      dtype=np.int32):
         """
         arguments:
             encoded_sequences -- a list of Encoded(encoded, unknowns) tuples.
+            fake_hybrid -- if True, create a dummy unknown word matrix
+                               (use if there is no subencoder)
         """
         if not encoded_sequences:
             # An empty matrix would mess up things, so create a dummy 1x1
@@ -136,10 +140,14 @@ class TextEncoder(object):
                 m[-len(encoded):,i] = encoded
                 mask[-len(encoded):,i] = 1
 
-        if self.sub_encoder is None:
+        if self.sub_encoder is None and not fake_hybrid:
             return m, mask
         else:
-            char, char_mask = self.sub_encoder.pad_sequences(all_unknowns)
+            if self.sub_encoder is None and fake_hybrid:
+                char = np.zeros((1, 1), dtype=dtype)
+                char_mask = np.zeros_like(char, dtype=np.bool)
+            else:
+                char, char_mask = self.sub_encoder.pad_sequences(all_unknowns)
             return m, mask, char, char_mask
 
     def decode_padded(self, m, mask, char=None, char_mask=None):

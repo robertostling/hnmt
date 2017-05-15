@@ -153,7 +153,8 @@ class NMT(Model):
 
         self.add(Embeddings(
             'src_char_embeddings',
-            len(config['src_encoder'].sub_encoder),
+            1 if config['src_encoder'].sub_encoder is None \
+                    else len(config['src_encoder'].sub_encoder),
             config['src_char_embedding_dims'],
             dropout=config['char_embeddings_dropout']))
 
@@ -924,12 +925,15 @@ def main():
                 with open(args.load_source_vocabulary, 'rb') as f:
                     src_encoder = pickle.load(f)
                     if not src_encoder.sub_encoder:
-                        print("No sub-encoder found in source vocabulary, "
-                              "creating dummy...",
+                        print("WARNING: source encoder is not hybrid (this "
+                              "should still work though)",
                             file=sys.stderr, flush=True)
-                        src_encoder.sub_encoder = TextEncoder(
-                                counts={"": 1}, min_count=0,
-                            special=())
+                    #    print("No sub-encoder found in source vocabulary, "
+                    #          "creating dummy...",
+                    #        file=sys.stderr, flush=True)
+                    #    src_encoder.sub_encoder = TextEncoder(
+                    #            counts={"": 1}, min_count=0,
+                    #        special=())
             else:
                 raise NotImplementedError(
                         '--load-source-vocabulary required when training '
@@ -1008,7 +1012,8 @@ def main():
             if encode:
                 batch_sents = [config['src_encoder'].encode_sequence(sent)
                                for sent in batch_sents]
-            x = config['src_encoder'].pad_sequences(batch_sents)
+            x = config['src_encoder'].pad_sequences(
+                    batch_sents, fake_hybrid=True)
             beams = model.search(
                     *(x + (args.max_target_length,)),
                     beam_size=config['beam_size'],
@@ -1064,7 +1069,8 @@ def main():
                 trg_batch = [
                         config['trg_encoder'].encode_sequence(sent)
                         for sent in trg_sents[i:i+config['batch_size']]]
-                x = config['src_encoder'].pad_sequences(src_batch)
+                x = config['src_encoder'].pad_sequences(
+                        src_batch, fake_hybrid=True)
                 y = config['trg_encoder'].pad_sequences(trg_batch)
                 y = y + (np.ones(y[0].shape + (x[0].shape[0],),
                                     dtype=theano.config.floatX),)
@@ -1176,7 +1182,8 @@ def main():
         def prepare_batch(batch_pairs):
             src_batch, trg_batch, links_maps_batch = \
                     list(zip(*batch_pairs))
-            x = config['src_encoder'].pad_sequences(src_batch)
+            x = config['src_encoder'].pad_sequences(
+                    src_batch, fake_hybrid=True)
             y = config['trg_encoder'].pad_sequences(trg_batch)
             y = y + (np.ones(y[0].shape + (x[0].shape[0],),
                                 dtype=theano.config.floatX),)
@@ -1317,14 +1324,16 @@ def main():
                 #model.summarize(grads)
                 #print('-'*72, flush=True)
 
+                print('Batch %d:%d of shape %s has loss' % (
+                        epoch+1, optimizer.n_updates,
+                        ' '.join(str(m.shape) for m in (x[0], x[2], y[0]))),
+                    end='',
+                    flush=True)
+
                 t0 = time()
                 train_loss = optimizer.step(*(x + y))
                 train_loss *= (y[0].shape[1] / (y[1].sum()*np.log(2)))
-                print('Batch %d:%d of shape %s has loss %.3f (%.2f s)' % (
-                    epoch+1, optimizer.n_updates,
-                    ' '.join(str(m.shape) for m in (x[0], y[0])),
-                    train_loss, time()-t0),
-                    flush=True)
+                print(' %.3f (%.2f s)' % (train_loss, time()-t0), flush=True)
                 if np.isnan(train_loss):
                     print('NaN loss, aborting!')
                     sys.exit(1)
