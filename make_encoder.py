@@ -44,7 +44,8 @@ def main():
 
     character = args.tokenizer == 'char'
 
-    assert not (character and args.hybrid)
+    # This actually makes sense as a workaround for character-based encoders
+    #assert not (character and args.hybrid)
 
     for filename in args.files:
         print('Processing %s...' % filename, file=sys.stderr, flush=True)
