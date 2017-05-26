@@ -566,6 +566,8 @@ def main():
     parser.add_argument('--score-target', type=str, default=argparse.SUPPRESS,
             metavar='FILE',
             help='name of target language test file for sentence scoring')
+    parser.add_argument('--write-attention', type=str, default=None,
+            metavar='FILE', help='write attention matrix to file (works during scoring)')
     parser.add_argument('--evaluate', action='store_true',
             help='perform evaluation (using --score-target and --reference)')
     parser.add_argument('--rerank', action='store_true',
@@ -1062,6 +1064,9 @@ def main():
 
         assert len(src_sents) == len(trg_sents)
         with open(args.score, 'w') as outf:
+            if args.write_attention:
+                attention_file = open(args.write_attention, 'w', encoding='utf-8')
+
             for i in range(0, len(src_sents), config['batch_size']):
                 src_batch = [
                         config['src_encoder'].encode_sequence(sent)
@@ -1089,6 +1094,16 @@ def main():
                         pred_attention += pred_attention_
                 pred_y /= len(models)
                 pred_attention /= len(models)
+
+                if args.write_attention:
+                    for j, (srcsent, trgsent) in enumerate(zip(src_sents[i:i+config['batch_size']], trg_sents[i:i+config['batch_size']])):
+                        srcsent = ["_"] + srcsent + ["_"]
+                        #trgsent = ["_"] + trgsent + ["_"]
+                        trgsent = trgsent + ["_"]
+                        attention_file.write("\t" + "\t".join(trgsent) + "\n")
+                        for k, srcword in enumerate(srcsent):
+                            attention_file.write(srcword + "\t" + "\t".join([str(x) for x in pred_attention[:len(trgsent),j,k]]) + "\n")
+                        attention_file.write("\n")
 
                 idx1, idx2 = np.indices(test_outputs[1:].shape)
                 p_y = pred_y[idx1, idx2, test_outputs[1:]] + \
@@ -1123,6 +1138,9 @@ def main():
                     for x in score:
                         print(x, file=outf, flush=True)
                 print('.'*len(score), file=sys.stderr, flush=True)
+            if args.write_attention:
+                attention_file.close()
+
         print('\nScores written to %s, exiting...' % args.score,
               file=sys.stderr, flush=True)
         return
