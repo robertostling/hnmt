@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """calculate BLEU scores
 
 script taken from https://github.com/vikasnar/Bleu
