@@ -17,7 +17,7 @@ import functools
 def fetch_data(cand, ref):
     """ Store each reference and candidate sentences as a list """
     references = []
-    if '.txt' in ref:
+    if os.path.isfile(ref):
         reference_file = codecs.open(ref, 'r', 'utf-8')
         references.append(reference_file.readlines())
     else:
@@ -127,7 +127,5 @@ def BLEU(candidate, references):
 if __name__ == "__main__":
     candidate, references = fetch_data(sys.argv[1], sys.argv[2])
     bleu = BLEU(candidate, references)
-    print(bleu)
-    out = open('bleu_out.txt', 'w')
-    out.write(str(bleu))
-    out.close()
+    print('BLEU = %.4f (%.3f, %.3f, %.3f, %.3f, BP = %.3f)' % (bleu))
+
