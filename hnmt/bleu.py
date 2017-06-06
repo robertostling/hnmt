@@ -19,14 +19,14 @@ import functools
 def fetch_data(cand, ref):
     """ Store each reference and candidate sentences as a list """
     references = []
-    if os.path.isfile(ref):
-        reference_file = codecs.open(ref, 'r', 'utf-8')
-        references.append(reference_file.readlines())
-    else:
+    if os.path.isdir(ref):
         for root, dirs, files in os.walk(ref):
             for f in files:
                 reference_file = codecs.open(os.path.join(root, f), 'r', 'utf-8')
                 references.append(reference_file.readlines())
+    else:
+        reference_file = codecs.open(ref, 'r', 'utf-8')
+        references.append(reference_file.readlines())
     candidate_file = codecs.open(cand, 'r', 'utf-8')
     candidate = candidate_file.readlines()
     return candidate, references
@@ -50,7 +50,8 @@ def count_ngram(candidate, references, n):
             limits = len(words) - n + 1
             # loop through the sentance consider the ngram length
             for i in range(limits):
-                ngram = ' '.join(words[i:i+n]).lower()
+                # ngram = ' '.join(words[i:i+n]).lower()
+                ngram = ' '.join(words[i:i+n])
                 if ngram in ngram_d.keys():
                     ngram_d[ngram] += 1
                 else:
@@ -62,7 +63,8 @@ def count_ngram(candidate, references, n):
         words = cand_sentence.strip().split()
         limits = len(words) - n + 1
         for i in range(0, limits):
-            ngram = ' '.join(words[i:i + n]).lower()
+            # ngram = ' '.join(words[i:i + n]).lower()
+            ngram = ' '.join(words[i:i + n])
             if ngram in cand_dict:
                 cand_dict[ngram] += 1
             else:
