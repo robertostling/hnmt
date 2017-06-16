@@ -72,6 +72,8 @@ Training a model on the Europarl corpus can be done like this:
     python3 hnmt.py --train europarl-v7.sv-en \
                     --source-tokenizer word \
                     --target-tokenizer char \
+                    --heldout-source dev.sv \
+                    --heldout-target dev.en \
                     --load-source-vocabulary vocab.sv \
                     --load-target-vocabulary vocab.en \
                     --batch-budget 32 \
@@ -85,6 +87,11 @@ it for 24 hours. Development set cross-entropy and some other statistics
 appended to this file, which is usually the best way of monitoring training.
 Training loss and development set translations will be written to stdout, so
 redirecting this or using `tee` is recommended.
+
+Note that `--heldout-source` and `--heldout-target` are mandatory, and that
+while the training data contains sentence pairs separated by ||| in the same
+file, the heldout sentences (which are only used for monitoring during
+training) are separated into two files.
 
 The resulting model can be used like this:
 
