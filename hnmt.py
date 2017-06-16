@@ -1211,7 +1211,8 @@ def main():
             test_pairs = list(zip(test_src, test_trg, test_links_maps))
         else:
             raise NotImplementedError(
-                    'Heldout training sentences is no longer supported')
+                    'Heldout training sentences is no longer supported '
+                    '(please use --heldout-source and --heldout-target)')
 
         logf, evalf = None, None
         if args.log_file:
