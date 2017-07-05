@@ -121,6 +121,14 @@ class TextEncoder(object):
         length = max((len(x[0]) for x in encoded_sequences))
         length = length if max_length is None else min(length, max_length)
 
+        # TODO: this should not happen, but apparently it does, so add a
+        # special check
+        if not length:
+            m = np.zeros((1 if max_length is None else max_length, 1),
+                         dtype=dtype)
+            mask = np.zeros_like(m, dtype=np.bool)
+            return m, mask
+
         m = np.zeros((length, len(encoded_sequences)), dtype=dtype)
         mask = np.zeros_like(m, dtype=np.bool)
 
@@ -160,3 +168,4 @@ class TextEncoder(object):
                  for x,b in zip(row,row_mask)
                  if bool(b) and x not in (start, stop)]
                 for row,row_mask in zip(m.T,mask.T)]
+
