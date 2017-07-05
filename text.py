@@ -75,6 +75,12 @@ class TextEncoder(object):
             idx = self.index.get(x)
             if idx is None:
                 if unknowns is None:
+                    # NOTE: unk can be None if a word contains character
+                    #       we have not seen before and the character
+                    #       vocabulary was created without an <UNK> token
+                    #       This workaround should not be necessary with new
+                    #       vocabularies.
+                    if unk is None: return 0
                     return unk
                 else:
                     encoded_unk = self.sub_encoder.encode_sequence(x)
@@ -120,14 +126,6 @@ class TextEncoder(object):
 
         length = max((len(x[0]) for x in encoded_sequences))
         length = length if max_length is None else min(length, max_length)
-
-        # TODO: this should not happen, but apparently it does, so add a
-        # special check
-        if not length:
-            m = np.zeros((1 if max_length is None else max_length, 1),
-                         dtype=dtype)
-            mask = np.zeros_like(m, dtype=np.bool)
-            return m, mask
 
         m = np.zeros((length, len(encoded_sequences)), dtype=dtype)
         mask = np.zeros_like(m, dtype=np.bool)

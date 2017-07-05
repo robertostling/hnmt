@@ -63,7 +63,7 @@ def main():
                 counts=char_count,
                 min_count=args.min_char_count,
                 max_vocab=args.char_vocabulary,
-                special=())
+                special=('<UNK>',))
         encoder = TextEncoder(
                 counts=token_count,
                 max_vocab=args.vocabulary,
