@@ -7,10 +7,11 @@ at the University of Helsinki and (now) Stockholm University.
 
 HNMT is the best system for English-to-Finnish translation according to both
 the manual and automatic evaluations done for the official
-[WMT 2017](http://www.statmt.org/wmt17/translation-task.html) results.
-Our [system description paper (PDF)](papers/hnmt-wmt2017.pdf) describes the
-design and implementation of our system in detail, and contains evaluations of
-different features.
+[WMT 2017](http://www.statmt.org/wmt17/translation-task.html) results. 
+Our [system description paper](papers/hnmt-wmt2017.pdf) (camera-ready copy,
+due to be published in the proceedings of the WMT 2017, September 2017)
+describes the design and implementation of our system in detail, and contains
+evaluations of different features.
 
 ## Updates
 
