@@ -1,10 +1,16 @@
 # HNMT: the Helsinki Neural Machine Translation system
 
 This is a neural network-based machine translation system developed
-at the University of Helsinki.
+at the University of Helsinki and (now) Stockholm University.
 
-It is currently rather experimental, but the user interface and setup
-procedure should be simple enough for people to try out.
+## Evaluations
+
+HNMT is the best system for English-to-Finnish translation according to both
+the manual and automatic evaluations done for the official
+[WMT 2017](http://www.statmt.org/wmt17/translation-task.html) results.
+Our [system description paper (PDF)](papers/hnmt-wmt2017.pdf) describes the
+design and implementation of our system in detail, and contains evaluations of
+different features.
 
 ## Updates
 
