@@ -1,10 +1,17 @@
 # HNMT: the Helsinki Neural Machine Translation system
 
 This is a neural network-based machine translation system developed
-at the University of Helsinki.
+at the University of Helsinki and (now) Stockholm University.
 
-It is currently rather experimental, but the user interface and setup
-procedure should be simple enough for people to try out.
+## Evaluations
+
+HNMT is the best system for English-to-Finnish translation according to both
+the manual and automatic evaluations done for the official
+[WMT 2017](http://www.statmt.org/wmt17/translation-task.html) results. 
+Our [system description paper](papers/hnmt-wmt2017.pdf) (camera-ready copy,
+due to be published in the proceedings of the WMT 2017, September 2017)
+describes the design and implementation of our system in detail, and contains
+evaluations of different features.
 
 ## Updates
 
@@ -72,6 +79,8 @@ Training a model on the Europarl corpus can be done like this:
     python3 hnmt.py --train europarl-v7.sv-en \
                     --source-tokenizer word \
                     --target-tokenizer char \
+                    --heldout-source dev.sv \
+                    --heldout-target dev.en \
                     --load-source-vocabulary vocab.sv \
                     --load-target-vocabulary vocab.en \
                     --batch-budget 32 \
@@ -85,6 +94,11 @@ it for 24 hours. Development set cross-entropy and some other statistics
 appended to this file, which is usually the best way of monitoring training.
 Training loss and development set translations will be written to stdout, so
 redirecting this or using `tee` is recommended.
+
+Note that `--heldout-source` and `--heldout-target` are mandatory, and that
+while the training data contains sentence pairs separated by ||| in the same
+file, the heldout sentences (which are only used for monitoring during
+training) are separated into two files.
 
 The resulting model can be used like this:
 

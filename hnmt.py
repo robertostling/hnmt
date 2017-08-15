@@ -674,6 +674,10 @@ def main():
                  '--test-source and write scores to this file. The format of '
                  'this file is the same as that of --nbest-list if the '
                  '--rerank option is used, otherwise a plain list of scores')
+    parser.add_argument('--display-source-embedding', type=str, default=None, nargs="*",
+            help="display the embedding values of the given source word(s)")
+    parser.add_argument('--display-target-embedding', type=str, default=None, nargs="*",
+            help="display the embedding values of the given target word(s)")
 
     args = parser.parse_args()
     args_vars = vars(args)
@@ -701,6 +705,42 @@ def main():
             'gamma': 1.0,
             'len_smooth': 5.0,}
 
+    if args.display_source_embedding or args.display_target_embedding:
+        if args.load_model:
+            if ":" in args.load_model or "," in args.load_model:
+                raise NotImplementedError("Embedding lookup is implemented only for single models.")
+            with open(args.load_model, 'rb') as f:
+                config = pickle.load(f)
+                words = []
+                if args.display_source_embedding:
+                    for word in args.display_source_embedding:
+                        index = config["src_encoder"][word]
+                        if index == config["src_encoder"]["<UNK>"]:
+                            sys.stderr.write("Word {} is not in source encoder!\n".format(word))
+                        else:
+                            words.append((word, index))
+                else:
+                    for word in args.display_target_embedding:
+                        index = config["trg_encoder"][word]
+                        if index == config["trg_encoder"]["<UNK>"]:
+                            sys.stderr.write("Word {} is not in target encoder!\n".format(word))
+                        else:
+                            words.append((word, index))
+                
+                model = NMT('nmt', config)
+                model.load(f)
+                if args.display_source_embedding:
+                    embeddings = model.submodels["src_embeddings"]
+                else:
+                    embeddings = model.submodels["trg_embeddings"]
+                for word, index in words:
+                    vector = embeddings.params["w"].get_value()[index]
+                    vector_string = " ".join(["{:.6f}".format(x) for x in vector])
+                    sys.stdout.write(word + " " + str(index) + " " + vector_string + "\n")
+        else:
+            quit('Use --load-model to specify model to be searched!');
+        return
+        
     if args.evaluate:
         use_nbest = args.rerank
 
@@ -1229,7 +1269,8 @@ def main():
             test_pairs = list(zip(test_src, test_trg, test_links_maps))
         else:
             raise NotImplementedError(
-                    'Heldout training sentences is no longer supported')
+                    'Heldout training sentences is no longer supported '
+                    '(please use --heldout-source and --heldout-target)')
 
         logf, evalf = None, None
         if args.log_file:

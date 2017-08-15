@@ -75,6 +75,12 @@ class TextEncoder(object):
             idx = self.index.get(x)
             if idx is None:
                 if unknowns is None:
+                    # NOTE: unk can be None if a word contains character
+                    #       we have not seen before and the character
+                    #       vocabulary was created without an <UNK> token
+                    #       This workaround should not be necessary with new
+                    #       vocabularies.
+                    if unk is None: return 0
                     return unk
                 else:
                     encoded_unk = self.sub_encoder.encode_sequence(x)
@@ -160,3 +166,4 @@ class TextEncoder(object):
                  for x,b in zip(row,row_mask)
                  if bool(b) and x not in (start, stop)]
                 for row,row_mask in zip(m.T,mask.T)]
+
