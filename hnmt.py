@@ -892,7 +892,8 @@ def main():
                     pickle.dump(config, f)
                     submodel.save(f)
         else:
-            quit('Use --load-model to specify model to be split!');
+            sys.stderr.write('Use --load-model to specify model to be split!\n')
+			return
 
     else:
         print('HNMT: starting training...', file=sys.stderr, flush=True)
