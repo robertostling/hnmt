@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 # Script to create a TextEncoder object for storing the vocabulary
 
 import sys

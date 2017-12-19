@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """HNMT: Helsinki Neural Machine Translation system.
 
 See README.md for further documentation.
@@ -738,7 +740,7 @@ def main():
                     vector_string = " ".join(["{:.6f}".format(x) for x in vector])
                     sys.stdout.write(word + " " + str(index) + " " + vector_string + "\n")
         else:
-            quit('Use --load-model to specify model to be searched!');
+            sys.stderr.write('Use --load-model to specify model to be searched!\n');
         return
         
     if args.evaluate:

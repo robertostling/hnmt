@@ -7,7 +7,6 @@ functions were used in earlier examples and should be phased out.
 from collections import Counter, namedtuple
 
 import numpy as np
-import theano
 
 Encoded = namedtuple('Encoded', ['sequence', 'unknown'])
 

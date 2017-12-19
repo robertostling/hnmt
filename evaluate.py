@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """Script for evaluating HNMT models using WMT data.
 
 This should be run on taito-gpu.csc.fi. The translation is launched on a
