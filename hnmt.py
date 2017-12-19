@@ -801,9 +801,12 @@ def main():
         pprint(system[:2])
 
         bleu_result = BLEU(system,[reference])
+        lc_bleu_result = BLEU(system,[reference], lowercase=True)
         chrf_result = chrF(trg_raw,trg_sents_raw)
         print('BLEU = %.4f (%.3f, %.3f, %.3f, %.3f, BP = %.3f, N=%d)' %
                 (bleu_result + (len(reference),)))
+        print('LC BLEU = %.4f (%.3f, %.3f, %.3f, %.3f, BP = %.3f, N=%d)' %
+                (lc_bleu_result + (len(reference),)))
         print('chrF = %.4f (precision = %.3f, recall = %.3f)' %
                 chrf_result)
         return
@@ -1230,6 +1233,8 @@ def main():
                              for s in trg]
                 print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(
                     system,[reference]))
+                print('LC BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(
+                    system,[reference], lowercase=True))
                 print('chrF = %f (precision = %f, recall = %f)' % chrF(
                     reference,system))
             else:
@@ -1237,6 +1242,8 @@ def main():
                              for s in trg ]
                 print('BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(
                     hypotheses,[reference]))
+                print('LC BLEU = %f (%f, %f, %f, %f, BP = %f)' % BLEU(
+                    hypotheses,[reference], lowercase=True))
                 print('chrF = %f (precision = %f, recall = %f)' % chrF(
                     reference,hypotheses))
     else:

@@ -32,7 +32,7 @@ def fetch_data(cand, ref):
     return candidate, references
 
 
-def count_ngram(candidate, references, n):
+def count_ngram(candidate, references, n, lowercase):
     clipped_count = 0
     count = 0
     r = 0
@@ -50,8 +50,9 @@ def count_ngram(candidate, references, n):
             limits = len(words) - n + 1
             # loop through the sentance consider the ngram length
             for i in range(limits):
-                # ngram = ' '.join(words[i:i+n]).lower()
                 ngram = ' '.join(words[i:i+n])
+                if lowercase:
+                    ngram = ngram.lower()
                 if ngram in ngram_d.keys():
                     ngram_d[ngram] += 1
                 else:
@@ -63,8 +64,9 @@ def count_ngram(candidate, references, n):
         words = cand_sentence.strip().split()
         limits = len(words) - n + 1
         for i in range(0, limits):
-            # ngram = ' '.join(words[i:i + n]).lower()
             ngram = ' '.join(words[i:i + n])
+            if lowercase:
+                ngram = ngram.lower()
             if ngram in cand_dict:
                 cand_dict[ngram] += 1
             else:
@@ -120,10 +122,10 @@ def geometric_mean(precisions):
     return (functools.reduce(operator.mul, precisions)) ** (1.0 / len(precisions))
 
 
-def BLEU(candidate, references):
+def BLEU(candidate, references, lowercase=False):
     precisions = []
     for i in range(4):
-        pr, bp = count_ngram(candidate, references, i+1)
+        pr, bp = count_ngram(candidate, references, i+1, lowercase)
         precisions.append(pr)
     bleu = geometric_mean(precisions) * bp
     return bleu, precisions[0], precisions[1], precisions[2], precisions[3], bp
