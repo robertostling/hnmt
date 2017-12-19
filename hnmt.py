@@ -740,7 +740,7 @@ def main():
                     vector_string = " ".join(["{:.6f}".format(x) for x in vector])
                     sys.stdout.write(word + " " + str(index) + " " + vector_string + "\n")
         else:
-            sys.stderr.write('Use --load-model to specify model to be searched!\n');
+            sys.stderr.write('Use --load-model to specify model to be searched!\n')
         return
         
     if args.evaluate:
@@ -893,7 +893,7 @@ def main():
                     submodel.save(f)
         else:
             sys.stderr.write('Use --load-model to specify model to be split!\n')
-			return
+            return
 
     else:
         print('HNMT: starting training...', file=sys.stderr, flush=True)
