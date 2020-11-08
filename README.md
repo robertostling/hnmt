@@ -107,7 +107,7 @@ The resulting model can be used like this:
                     --beam-size 10
 
 Note that when training a model from scratch, parameters can be set on the
-commandline or otherwise the hard-coded defaults are ued. When continuing
+commandline or otherwise the hard-coded defaults are used. When continuing
 training or doing translation (i.e. whenever the ``--load-model`` argument is
 used), the defaults are encoded in the given model file, although some of
 these (that do not change the network structure) can still be overridden by
